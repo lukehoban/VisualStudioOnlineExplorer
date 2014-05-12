@@ -1,0 +1,26 @@
+﻿<ion-view title="Commits">
+    <ion-content class="has-header">
+        <div ng-if="commits.length == 0" class="card">
+            <div class="item item-text-wrap">
+                No commits in this repo yet!
+            </div>
+        </div>
+        <div class="list">
+            <a ng-repeat="commit in commits" class="item list card" ng-href="#/changes/{{repoId}}/{{commit.commitId}}">
+                <div class="item item-avatar">
+                    <img ng-src="http://www.gravatar.com/avatar/{{getHash(commit.author.email)}}" />
+                    <h2>{{commit.author.name}}</h2>
+                    <p>{{commit.author.date | date:'MM/dd/yyyy @ h:mma'}}</p>
+                </div>
+                <div class="item item-body">
+                    {{commit.comment}}
+                </div>
+                <div class="item tabs">
+                    <span class="tab-item"><span ng-if="commit.changeCounts.Edit">{{commit.changeCounts.Edit}} edit</span></span>
+                    <span class="tab-item"><span ng-if="commit.changeCounts.Add">{{commit.changeCounts.Add}} add</span></span>
+                    <span class="tab-item"><span ng-if="commit.changeCounts.Delete">{{commit.changeCounts.Delete}} remove</span></span>
+                </div>
+            </a>
+        </div>
+    </ion-content>
+</ion-view>

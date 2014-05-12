@@ -58,14 +58,14 @@
       <Configuration>Release</Configuration>
       <Platform>Windows Phone</Platform>
     </ProjectConfiguration>
-	<ProjectConfiguration Include="Distribution|Android">
-	  <Configuration>Distribution</Configuration>
-	  <Platform>Android</Platform>
-	</ProjectConfiguration>
-	<ProjectConfiguration Include="Distribution|iOS">
-	  <Configuration>Distribution</Configuration>
-	  <Platform>iOS</Platform>
-	</ProjectConfiguration>
+    <ProjectConfiguration Include="Distribution|Android">
+      <Configuration>Distribution</Configuration>
+      <Platform>Android</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Distribution|iOS">
+      <Configuration>Distribution</Configuration>
+      <Platform>iOS</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="Distribution|Windows-AnyCPU">
       <Configuration>Distribution</Configuration>
       <Platform>Windows-AnyCPU</Platform>
@@ -100,11 +100,6 @@
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\$(WMSJSProjectDirectory)\Microsoft.VisualStudio.$(WMSJSProject).Default.props" />
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\$(WMSJSProjectDirectory)\Microsoft.VisualStudio.$(WMSJSProject).props" />
   <ItemGroup>
-    <Folder Include="images\" />
-    <Folder Include="merges\android\" />
-    <Folder Include="merges\ios\" />
-    <Folder Include="merges\windows8\" />
-    <Folder Include="merges\wp8\" />
     <Folder Include="res\icons\android\" />
     <Folder Include="res\icons\ios\" />
     <Folder Include="res\icons\wp8\" />
@@ -115,12 +110,24 @@
     <Folder Include="res\screens\wp8\" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="config.xml" >
+    <Content Include="config.xml">
       <SubType>Designer</SubType>
     </Content>
+    <Content Include="Content\ionic.css" />
+    <Content Include="fonts\glyphicons-halflings-regular.eot" />
+    <Content Include="fonts\glyphicons-halflings-regular.svg" />
+    <Content Include="fonts\glyphicons-halflings-regular.ttf" />
+    <Content Include="fonts\glyphicons-halflings-regular.woff" />
+    <Content Include="fonts\ionicons.eot" />
+    <Content Include="fonts\ionicons.svg" />
+    <Content Include="fonts\ionicons.ttf" />
+    <Content Include="fonts\ionicons.woff" />
     <Content Include="index.html" />
+    <Content Include="partials\changes.html" />
+    <Content Include="partials\home.html" />
+    <Content Include="partials\repo.html" />
+    <Content Include="partials\user.html" />
     <Content Include="scripts\index.js" />
-    <Content Include="css\index.css" />
     <Content Include="res\cert\android\ant.properties" />
     <Content Include="res\icons\android\icon-36-ldpi.png" />
     <Content Include="res\icons\android\icon-48-mdpi.png" />
@@ -162,47 +169,44 @@
     <Content Include="res\screens\ios\screen-iphone-portrait-2x.png" />
     <Content Include="res\screens\windows8\splashscreen.png" />
     <Content Include="res\screens\wp8\screen-portrait.jpg" />
+    <Content Include="scripts\ionic.bundle.js" />
+    <Content Include="scripts\md5.min.js" />
   </ItemGroup>
   <PropertyGroup>
-	<TypeScriptToolsVersion>1.0</TypeScriptToolsVersion>
-	<DefaultReferenceGroup>Implicit (Multi-Device Apps)</DefaultReferenceGroup>
+    <TypeScriptToolsVersion>1.0</TypeScriptToolsVersion>
+    <DefaultReferenceGroup>Implicit (Multi-Device Apps)</DefaultReferenceGroup>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-	<TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
-	<TypeScriptRemoveComments>false</TypeScriptRemoveComments>
-	<TypeScriptSourceMap>true</TypeScriptSourceMap>
+    <TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
+    <TypeScriptRemoveComments>false</TypeScriptRemoveComments>
+    <TypeScriptSourceMap>true</TypeScriptSourceMap>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-	<TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
-	<TypeScriptRemoveComments>true</TypeScriptRemoveComments>
-	<TypeScriptSourceMap>false</TypeScriptSourceMap>
+    <TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
+    <TypeScriptRemoveComments>true</TypeScriptRemoveComments>
+    <TypeScriptSourceMap>false</TypeScriptSourceMap>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Distribution'">
-	<TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
-	<TypeScriptRemoveComments>true</TypeScriptRemoveComments>
-	<TypeScriptSourceMap>false</TypeScriptSourceMap>
+    <TypeScriptCompileOnSaveEnabled>false</TypeScriptCompileOnSaveEnabled>
+    <TypeScriptRemoveComments>true</TypeScriptRemoveComments>
+    <TypeScriptSourceMap>false</TypeScriptSourceMap>
   </PropertyGroup>
   <Import Project="$(AppData)\npm\node_modules\vs-mda-targets\Microsoft.MDA.targets" />
   <Import Project="$(AppData)\npm\node_modules\vs-mda-targets\Microsoft.TypeScript.MDA.targets" />
   <PropertyGroup>
     <ProjectUISubcaption>Multi-Device Hybrid App</ProjectUISubcaption>
   </PropertyGroup>
-
   <Target Name="EnsureBuildPrerequisites">
     <!-- These errors will trigger if building from inside Visual Studio and requirements could not be determined -->
     <Error Condition="$(MDAPropertiesEvaluated) == 'true' And $(NodeJsDir) == ''" Text="Path to NodeJs could not be determined. Please check that NodeJs has been installed." />
     <Error Condition="$(MDAPropertiesEvaluated) == 'true' And $(MDAVsixDir) == ''" Text="Path to the Visual Studio Extension for Multi-Device Hybrid Apps could not be determined. Please check that the extension has been installed." />
-
     <!-- These errors will trigger if building from outside Visual Studio (e.g. command line) and environment variables have not been set -->
     <Error Condition="$(MDAPropertiesEvaluated) == '' And $(NodeJsDir) == ''" Text="Path to NodeJs has not been specified. Please check that NodeJs has been installed and set the NodeJsDir environment variable before building." />
     <Error Condition="$(MDAPropertiesEvaluated) == '' And $(MDAVsixDir) == ''" Text="Path to Visual Studio Extension for Multi-Device Hybrid Apps has not been specified. Please install it and set the MDAVsixDir environment variable before building." />
-
     <!-- Sanity check that things exist in the specified places. These are more likely to fail if building outside Visual Studio and the required environment variables have not been set, or set incorrectly. -->
     <Error Condition="!Exists('$(NodeJsDir)') Or !Exists('$(NodeJsDir)\node.exe')" Text="The specified NodeJs directory $(NodeJsDir) either does not exist, or does not contain node.exe. Please check that NodeJs has been installed, and set the NodeJsDir variable to the correct directory." />
     <Error Condition="!Exists('$(MDAVsixDir)') Or !Exists('$(MDAVsixDir)\packages\vs-mda')" Text="The specified directory to the Visual Studio extension $(MDAVsixDir)\node.exe either does not exist, or does not contain a packages\vs-mda sub-directory. Please check that the extension directory exists and set the MDAVsixDir variable to the correct directory." />
-
     <!-- Installs (if necessary) the supporting Nodejs module -->
-    <Exec Command='"$(MDAVsixDir)"\packages\vs-mda\install "$(NodeJsDir)" "$(MDAVsixDir)"\packages\vs-mda'/>
+    <Exec Command="&quot;$(MDAVsixDir)&quot;\packages\vs-mda\install &quot;$(NodeJsDir)&quot; &quot;$(MDAVsixDir)&quot;\packages\vs-mda" />
   </Target>
-
 </Project>

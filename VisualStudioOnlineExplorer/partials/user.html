@@ -1,0 +1,18 @@
+﻿<ion-view title="Repos">
+    <div class="bar bar-subheader item-input-inset">
+        <label class="item-input-wrapper">
+            <i class="icon ion-ios7-search placeholder-icon"></i>
+            <input type="search" placeholder="Search" ng-model="searchText" autocorrect="off" >
+        </label>
+    </div>
+    <ion-content class="has-header has-subheader">
+        <div class="list">
+            <a ng-repeat="repo in repos | filter:searchText" class="item" ng-href="#/repo/{{repo.id}}">
+                {{repo.name}}
+                <span ng-repeat="branch in repo.branches" class="item-note">
+                    &nbsp;&nbsp;{{branch.name}}
+                </span>
+            </a>
+        </div>
+    </ion-content>
+</ion-view>

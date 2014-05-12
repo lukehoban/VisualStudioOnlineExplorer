@@ -1,0 +1,24 @@
+﻿<ion-view title="Visual Studio Online">
+    <ion-content class="has-header">
+        <div class="list card">
+            <div class="item item-body">
+                Browse the repositories in your Visual Studio Online account.
+            </div>
+            <div class="item item-input-inset">
+                <label class="item-input-wrapper">
+                    <input type="text" placeholder="Domain" ng-model="account.account" />
+                </label>
+                <span>.visualstudio.com</span>
+            </div>
+            <label class="item item-input-inset">
+                <input type="text" placeholder="Email" ng-model="account.username"/>
+            </label>
+            <label class="item item-input">
+                <input type="password" placeholder="Password" ng-model="account.password" />
+            </label>
+            <div class="item">
+                <button class="button button-block button-positive" ng-click="login()"> Log in </button>
+            </div>
+        </div>
+    </ion-content>
+</ion-view>
