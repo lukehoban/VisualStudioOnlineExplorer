@@ -1,14 +1,15 @@
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /*!
  * Copyright 2014 Drifty Co.
  * http://drifty.com/
  *
- * Ionic, v1.0.0-beta.1
+ * Ionic, v1.0.0-beta.4
  * A powerful HTML5 mobile app framework.
  * http://ionicframework.com/
  *
@@ -25,7 +26,7 @@
 window.ionic = {
   controllers: {},
   views: {},
-  version: '1.0.0-beta.1'
+  version: '1.0.0-beta.4'
 };
 
 (function(ionic) {
@@ -323,6 +324,25 @@ window.ionic = {
     swapNodes: function(src, dest) {
       dest.parentNode.insertBefore(src, dest);
     },
+
+    /**
+     * @private
+     */
+    centerElementByMargin: function(el) {
+      el.style.marginLeft = (-el.offsetWidth) / 2 + 'px';
+      el.style.marginTop = (-el.offsetHeight) / 2 + 'px';
+    },
+    //Center twice, after raf, to fix a bug with ios and showing elements
+    //that have just been attached to the DOM.
+    centerElementByMarginTwice: function(el) {
+      ionic.requestAnimationFrame(function() {
+        ionic.DomUtil.centerElementByMargin(el);
+        ionic.requestAnimationFrame(function() {
+          ionic.DomUtil.centerElementByMargin(el);
+        });
+      });
+    },
+
     /**
      * @ngdoc method
      * @name ionic.DomUtil#getParentWithClass
@@ -382,7 +402,7 @@ window.ionic = {
   //Shortcuts
   ionic.requestAnimationFrame = ionic.DomUtil.requestAnimationFrame;
   ionic.animationFrameThrottle = ionic.DomUtil.animationFrameThrottle;
-})(this, document, ionic);
+})(window, document, ionic);
 
 /**
  * ion-events.js
@@ -399,36 +419,31 @@ window.ionic = {
 (function(ionic) {
 
   // Custom event polyfill
-  if(!window.CustomEvent) {
-    (function() {
-      var CustomEvent;
-
-      CustomEvent = function(event, params) {
-        var evt;
-        params = params || {
-          bubbles: false,
-          cancelable: false,
-          detail: undefined
-        };
-        try {
-          evt = document.createEvent("CustomEvent");
-          evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
-        } catch (error) {
-          // fallback for browsers that don't support createEvent('CustomEvent')
-          evt = document.createEvent("Event");
-          for (var param in params) {
-            evt[param] = params[param];
-          }
-          evt.initEvent(event, params.bubbles, params.cancelable);
-        }
-        return evt;
+  ionic.CustomEvent = window.CustomEvent || (function() {
+    var CustomEvent;
+    CustomEvent = function(event, params) {
+      var evt;
+      params = params || {
+        bubbles: false,
+        cancelable: false,
+        detail: undefined
       };
-
-      CustomEvent.prototype = window.Event.prototype;
-
-      window.CustomEvent = CustomEvent;
-    })();
-  }
+      try {
+        evt = document.createEvent("CustomEvent");
+        evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
+      } catch (error) {
+        // fallback for browsers that don't support createEvent('CustomEvent')
+        evt = document.createEvent("Event");
+        for (var param in params) {
+          evt[param] = params[param];
+        }
+        evt.initEvent(event, params.bubbles, params.cancelable);
+      }
+      return evt;
+    }
+    CustomEvent.prototype = window.Event.prototype;
+    return CustomEvent;
+  })();
 
 
   /**
@@ -451,7 +466,7 @@ window.ionic = {
      */
     // Trigger a new event
     trigger: function(eventType, data, bubbles, cancelable) {
-      var event = new CustomEvent(eventType, {
+      var event = new ionic.CustomEvent(eventType, {
         detail: data,
         bubbles: !!bubbles,
         cancelable: !!cancelable
@@ -459,7 +474,7 @@ window.ionic = {
 
       // Make sure to trigger the event on the given target, or dispatch it from
       // the window if we don't have an event target
-      data && data.target && data.target.dispatchEvent(event) || window.dispatchEvent(event);
+      data && data.target && data.target.dispatchEvent && data.target.dispatchEvent(event) || window.dispatchEvent(event);
     },
 
     /**
@@ -505,6 +520,14 @@ window.ionic = {
      * @name ionic.EventController#onGesture
      * @alias ionic.onGesture
      * @description Add an event listener for a gesture on an element.
+     *
+     * Available eventTypes (from [hammer.js](http://eightmedia.github.io/hammer.js/)):
+     *
+     * `hold`, `tap`, `doubletap`, `drag`, `dragstart`, `dragend`, `dragup`, `dragdown`, <br/>
+     * `dragleft`, `dragright`, `swipe`, `swipeup`, `swipedown`, `swipeleft`, `swiperight`, <br/>
+     * `transform`, `transformstart`, `transformend`, `rotate`, `pinch`, `pinchin`, `pinchout`, </br>
+     * `touch`, `release`
+     *
      * @param {string} eventType The gesture event to listen for.
      * @param {function(e)} callback The function to call when the gesture
      * happens.
@@ -1611,7 +1634,7 @@ window.ionic = {
       doubletap_interval	: 300
     },
     handler: function tapGesture(ev, inst) {
-      if(ev.eventType == ionic.Gestures.EVENT_END) {
+      if(ev.eventType == ionic.Gestures.EVENT_END && ev.srcEvent.type != 'touchcancel') {
         // previous gesture, for the double tap since these are two different gesture detections
         var prev = ionic.Gestures.detection.previous,
         did_doubletap = false;
@@ -1979,8 +2002,12 @@ window.ionic = {
      * @ngdoc method
      * @name ionic.Platform#ready
      * @description
-     * Trigger a callback once the device is ready,
-     * or immediately if the device is already ready.
+     * Trigger a callback once the device is ready, or immediately
+     * if the device is already ready. This method can be run from
+     * anywhere and does not need to be wrapped by any additonal methods.
+     * When the app is within a WebView (Cordova), it'll fire
+     * the callback once the device is ready. If the app is within
+     * a web browser, it'll fire the callback after `window.load`.
      * @param {function} callback The function to call.
      */
     ready: function(cb) {
@@ -2017,7 +2044,7 @@ window.ionic = {
      */
     device: function() {
       if(window.device) return window.device;
-      if(this.isCordova()) void 0;
+      if(this.isWebView()) void 0;
       return {};
     },
 
@@ -2025,7 +2052,12 @@ window.ionic = {
       this.platforms = [];
       this.grade = 'a';
 
-      if(this.isCordova()) this.platforms.push('cordova');
+      if(this.isWebView()) {
+        this.platforms.push('webview');
+        this.platforms.push('cordova');
+      } else {
+        this.platforms.push('browser');
+      }
       if(this.isIPad()) this.platforms.push('ipad');
 
       var platform = this.platform();
@@ -2052,10 +2084,10 @@ window.ionic = {
 
     /**
      * @ngdoc method
-     * @name ionic.Platform#isCordova
-     * @returns {boolean} Whether we are running on Cordova.
+     * @name ionic.Platform#isWebView
+     * @returns {boolean} Check if we are running within a WebView (such as Cordova).
      */
-    isCordova: function() {
+    isWebView: function() {
       return !(!window.cordova && !window.PhoneGap && !window.phonegap);
     },
     /**
@@ -2064,7 +2096,10 @@ window.ionic = {
      * @returns {boolean} Whether we are running on iPad.
      */
     isIPad: function() {
-      return this.ua.toLowerCase().indexOf('ipad') >= 0;
+      if( /iPad/i.test(window.navigator.platform) ) {
+        return true;
+      }
+      return /iPad/i.test(this.ua);
     },
     /**
      * @ngdoc method
@@ -2105,7 +2140,7 @@ window.ionic = {
       } else if(this.ua.indexOf('iPhone') > -1 || this.ua.indexOf('iPad') > -1 || this.ua.indexOf('iPod') > -1) {
         platformName = 'ios';
       } else {
-        platformName = '';
+        platformName = window.navigator.platform && window.navigator.platform.toLowerCase().split(' ')[0] || '';
       }
     },
 
@@ -2239,7 +2274,7 @@ window.ionic = {
 
   // setup listeners to know when the device is ready to go
   function onWindowLoad() {
-    if(ionic.Platform.isCordova()) {
+    if(ionic.Platform.isWebView()) {
       // the window and scripts are fully loaded, and a cordova/phonegap
       // object exists then let's listen for the deviceready
       document.addEventListener("deviceready", onPlatformReady, false);
@@ -2346,223 +2381,509 @@ window.ionic = {
 
 })(document, ionic);
 
-(function(window, document, ionic) {
-  'use strict';
 
-  // polyfill use to simulate native "tap"
-  ionic.tapElement = function(target, e) {
-    // simulate a normal click by running the element's click method then focus on it
+/**
+ * @ngdoc page
+ * @name tap
+ * @module ionic
+ * @description
+ * On touch devices such as a phone or tablet, some browsers implement a 300ms delay between
+ * the time the user stops touching the display and the moment the browser executes the
+ * click. This delay was initially introduced so the browser can know whether the user wants to
+ * double-tap to zoom in on the webpage.  Basically, the browser waits roughly 300ms to see if
+ * the user is double-tapping, or just tapping on the display once.
+ *
+ * Out of the box, Ionic automatically removes the 300ms delay in order to make Ionic apps
+ * feel more "native" like. Resultingly, other solutions such as
+ * [fastclick](https://github.com/ftlabs/fastclick) and Angular's
+ * [ngTouch](https://docs.angularjs.org/api/ngTouch) should not be included, to avoid conflicts.
+ *
+ * In some cases, third-party libraries may also be working with touch events which can interfere
+ * with the tap system. For example, mapping libraries like Google or Leaflet Maps often implement
+ * a touch detection system which conflicts with Ionic's tap system.
+ *
+ * ### Disabling the tap system
+ *
+ * To disable the tap for an element and all of its children elements,
+ * add the attribute `data-tap-disabled="true"`.
+ *
+ * ```html
+ * <div data-tap-disabled="true">
+ *     <div id="google-map"></div>
+ * </div>
+ * ```
+ *
+ * ### Additional Notes:
+ *
+ * - Ionic tap  works with Ionic's JavaScript scrolling
+ * - Elements can come and go from the DOM and Ionic tap doesn't keep adding and removing
+ *   listeners
+ * - No "tap delay" after the first "tap" (you can tap as fast as you want, they all click)
+ * - Minimal events listeners, only being added to document
+ * - Correct focus in/out on each input type (select, textearea, range) on each platform/device
+ * - Shows and hides virtual keyboard correctly for each platform/device
+ * - Works with labels surrounding inputs
+ * - Does not fire off a click if the user moves the pointer too far
+ * - Adds and removes an 'activated' css class
+ * - Multiple [unit tests](https://github.com/driftyco/ionic/blob/master/test/unit/utils/tap.unit.js) for each scenario
+ *
+ */
+/*
 
-    var ele = target.control || target;
+ IONIC TAP
+ ---------------
+ - Both touch and mouse events are added to the document.body on DOM ready
+ - If a touch event happens, it does not use mouse event listeners
+ - On touchend, if the distance between start and end was small, trigger a click
+ - In the triggered click event, add a 'isIonicTap' property
+ - The triggered click receives the same x,y coordinates as as the end event
+ - On document.body click listener (with useCapture=true), only allow clicks with 'isIonicTap'
+ - Triggering clicks with mouse events work the same as touch, except with mousedown/mouseup
+ - Tapping inputs is disabled during scrolling
+*/
 
-    if(ele.disabled || ele.type === 'file' || ele.type === 'range') return;
+var tapDoc; // the element which the listeners are on (document.body)
+var tapActiveEle; // the element which is active (probably has focus)
+var tapEnabledTouchEvents;
+var tapMouseResetTimer;
+var tapPointerMoved;
+var tapPointerStart;
+var tapTouchFocusedInput;
 
+var TAP_RELEASE_TOLERANCE = 6; // how much the coordinates can be off between start/end, but still a click
+
+var tapEventListeners = {
+  'click': tapClickGateKeeper,
+
+  'mousedown': tapMouseDown,
+  'mouseup': tapMouseUp,
+  'mousemove': tapMouseMove,
+
+  'touchstart': tapTouchStart,
+  'touchend': tapTouchEnd,
+  'touchcancel': tapTouchCancel,
+  'touchmove': tapTouchMove,
+
+  'focusin': tapFocusIn,
+  'focusout': tapFocusOut
+};
+
+ionic.tap = {
+
+  register: function(ele) {
+    tapDoc = ele;
+
+    tapEventListener('click', true, true);
+    tapEventListener('mouseup');
+    tapEventListener('mousedown');
+    tapEventListener('touchstart');
+    tapEventListener('touchend');
+    tapEventListener('touchcancel');
+    tapEventListener('focusin');
+    tapEventListener('focusout');
+
+    return function() {
+      for(var type in tapEventListeners) {
+        tapEventListener(type, false);
+      }
+      tapDoc = null;
+      tapActiveEle = null;
+      tapEnabledTouchEvents = false;
+      tapPointerMoved = false;
+      tapPointerStart = null;
+    };
+  },
+
+  ignoreScrollStart: function(e) {
+    return (e.defaultPrevented) ||  // defaultPrevented has been assigned by another component handling the event
+           (e.target.isContentEditable) ||
+           (/file|range/i).test(e.target.type) ||
+           (e.target.dataset ? e.target.dataset.preventScroll : e.target.getAttribute('data-prevent-default')) == 'true' || // manually set within an elements attributes
+           (!!(/object|embed/i).test(e.target.tagName));  // flash/movie/object touches should not try to scroll
+  },
+
+  isTextInput: function(ele) {
+    return !!ele &&
+           (ele.tagName == 'TEXTAREA' ||
+            ele.contentEditable === 'true' ||
+            (ele.tagName == 'INPUT' && !(/radio|checkbox|range|file|submit|reset/i).test(ele.type)) );
+  },
+
+  isLabelWithTextInput: function(ele) {
+    var container = tapContainingElement(ele, false);
+
+    return !!container &&
+           ionic.tap.isTextInput( tapTargetElement( container ) );
+  },
+
+  containsOrIsTextInput: function(ele) {
+    return ionic.tap.isTextInput(ele) || ionic.tap.isLabelWithTextInput(ele);
+  },
+
+  cloneFocusedInput: function(container, scrollIntance) {
+    if(ionic.tap.hasCheckedClone) return;
+    ionic.tap.hasCheckedClone = true;
+
+    ionic.requestAnimationFrame(function(){
+      var focusInput = container.querySelector(':focus');
+      if( ionic.tap.isTextInput(focusInput) ) {
+        var clonedInput = focusInput.parentElement.querySelector('.cloned-text-input');
+        if(!clonedInput) {
+          clonedInput = document.createElement(focusInput.tagName);
+          clonedInput.type = focusInput.type;
+          clonedInput.value = focusInput.value;
+          clonedInput.className = 'cloned-text-input';
+          clonedInput.readOnly = true;
+          focusInput.parentElement.insertBefore(clonedInput, focusInput);
+          focusInput.style.top = focusInput.offsetTop;
+          focusInput.classList.add('previous-input-focus');
+        }
+      }
+    });
+  },
+
+  hasCheckedClone: false,
+
+  removeClonedInputs: function(container, scrollIntance) {
+    ionic.tap.hasCheckedClone = false;
+
+    ionic.requestAnimationFrame(function(){
+      var clonedInputs = container.querySelectorAll('.cloned-text-input');
+      var previousInputFocus = container.querySelectorAll('.previous-input-focus');
+      var x;
+
+      for(x=0; x<clonedInputs.length; x++) {
+        clonedInputs[x].parentElement.removeChild( clonedInputs[x] );
+      }
+
+      for(x=0; x<previousInputFocus.length; x++) {
+        previousInputFocus[x].classList.remove('previous-input-focus');
+        previousInputFocus[x].style.top = '';
+        previousInputFocus[x].focus();
+      }
+    });
+  },
+
+  requiresNativeClick: function(ele) {
+    if(!ele || ele.disabled || (/file|range/i).test(ele.type) || (/object|video/i).test(ele.tagName) ) {
+      return true;
+    }
+    if(ele.nodeType === 1) {
+      var element = ele;
+      while(element) {
+        if( (element.dataset ? element.dataset.tapDisabled : element.getAttribute('data-tap-disabled')) == 'true' ) {
+          return true;
+        }
+        element = element.parentElement;
+      }
+    }
+    return false;
+  }
+
+};
+
+function tapEventListener(type, enable, useCapture) {
+  if(enable !== false) {
+    tapDoc.addEventListener(type, tapEventListeners[type], useCapture);
+  } else {
+    tapDoc.removeEventListener(type, tapEventListeners[type]);
+  }
+}
+
+function tapClick(e) {
+  // simulate a normal click by running the element's click method then focus on it
+  var container = tapContainingElement(e.target);
+  var ele = tapTargetElement(container);
+
+  if( ionic.tap.requiresNativeClick(ele) || tapPointerMoved ) return false;
+
+  var c = getPointerCoordinates(e);
+
+  void 0;
+  triggerMouseEvent('click', ele, c.x, c.y);
+
+  // if it's an input, focus in on the target, otherwise blur
+  tapHandleFocus(ele);
+}
+
+function triggerMouseEvent(type, ele, x, y) {
+  // using initMouseEvent instead of MouseEvent for our Android friends
+  var clickEvent = document.createEvent("MouseEvents");
+  clickEvent.initMouseEvent(type, true, true, window, 1, 0, 0, x, y, false, false, false, false, 0, null);
+  clickEvent.isIonicTap = true;
+  ele.dispatchEvent(clickEvent);
+}
+
+function tapClickGateKeeper(e) {
+  if(e.target.type == 'submit' && e.detail === 0) {
+    // do not prevent click if it came from an "Enter" or "Go" keypress submit
+    return;
+  }
+
+  // do not allow through any click events that were not created by ionic.tap
+  if( (ionic.scroll.isScrolling && ionic.tap.containsOrIsTextInput(e.target) ) ||
+      (!e.isIonicTap && !ionic.tap.requiresNativeClick(e.target)) ) {
     void 0;
+    e.stopPropagation();
 
-    var c = getCoordinates(e);
-
-    // using initMouseEvent instead of MouseEvent for our Android friends
-    var clickEvent = document.createEvent("MouseEvents");
-    clickEvent.initMouseEvent('click', true, true, window,
-                              1, 0, 0, c.x, c.y,
-                              false, false, false, false, 0, null);
-
-    ele.dispatchEvent(clickEvent);
-
-    if(ele.tagName === 'INPUT' || ele.tagName === 'TEXTAREA') {
-      ele.focus();
+    if( !ionic.tap.isLabelWithTextInput(e.target) ) {
+      // labels clicks from native should not preventDefault othersize keyboard will not show on input focus
       e.preventDefault();
-    } else {
-      blurActive();
     }
-
-    // remember the coordinates of this tap so if it happens again we can ignore it
-    // but only if the coordinates are not already being actively disabled
-    if( !isRecentTap(e) ) {
-      recordCoordinates(e);
-    }
-
-    if(target.control) {
-      void 0;
-      return stopEvent(e);
-    }
-  };
-
-  function tapPolyfill(orgEvent) {
-    // if the source event wasn't from a touch event then don't use this polyfill
-    if(!orgEvent.gesture || !orgEvent.gesture.srcEvent) return;
-
-    var e = orgEvent.gesture.srcEvent; // evaluate the actual source event, not the created event by gestures.js
-    var ele = e.target;
-
-    if( isRecentTap(e) ) {
-      // if a tap in the same area just happened, don't continue
-      void 0;
-      return stopEvent(e);
-    }
-
-    for(var x=0; x<5; x++) {
-      // climb up the DOM looking to see if the tapped element is, or has a parent, of one of these
-      // only climb up a max of 5 parents, anything more probably isn't beneficial
-      if(!ele) break;
-
-      if( ele.tagName === "INPUT" ||
-          ele.tagName === "A" ||
-          ele.tagName === "BUTTON" ||
-          ele.tagName === "LABEL" ||
-          ele.tagName === "TEXTAREA" ) {
-
-        return ionic.tapElement(ele, e);
-      }
-      ele = ele.parentElement;
-    }
-
-    // they didn't tap one of the above elements
-    // if the currently active element is an input, and they tapped outside
-    // of the current input, then unset its focus (blur) so the keyboard goes away
-    blurActive();
+    return false;
   }
+}
 
-  function preventGhostClick(e) {
+// MOUSE
+function tapMouseDown(e) {
+  if(e.isIonicTap || tapIgnoreEvent(e)) return;
 
+  if(tapEnabledTouchEvents) {
     void 0;
+    e.stopPropagation();
 
-
-    if(e.target.control || isRecentTap(e) || isScrolledSinceStart(e)) {
-      return stopEvent(e);
+    if( !ionic.tap.isTextInput(e.target) ) {
+      // If you preventDefault on a text input then you cannot move its text caret/cursor.
+      // Allow through only the text input default. However, without preventDefault on an
+      // input the 300ms delay can change focus on inputs after the keyboard shows up.
+      // The focusin event handles the chance of focus changing after the keyboard shows.
+      e.preventDefault();
     }
 
-    // remember the coordinates of this click so if a tap or click in the
-    // same area quickly happened again we can ignore it
-    recordCoordinates(e);
+    return false;
   }
 
-  function isRecentTap(event) {
-    // loop through the tap coordinates and see if the same area has been tapped recently
-    var tapId, existingCoordinates, currentCoordinates;
+  tapPointerMoved = false;
+  tapPointerStart = getPointerCoordinates(e);
 
-    for(tapId in tapCoordinates) {
-      existingCoordinates = tapCoordinates[tapId];
-      if(!currentCoordinates) currentCoordinates = getCoordinates(event); // lazy load it when needed
+  tapEventListener('mousemove');
+  ionic.activator.start(e);
+}
 
-      if(currentCoordinates.x > existingCoordinates.x - HIT_RADIUS &&
-         currentCoordinates.x < existingCoordinates.x + HIT_RADIUS &&
-         currentCoordinates.y > existingCoordinates.y - HIT_RADIUS &&
-         currentCoordinates.y < existingCoordinates.y + HIT_RADIUS) {
-        // the current tap coordinates are in the same area as a recent tap
-        return existingCoordinates;
-      }
-    }
-  }
-
-  function isScrolledSinceStart(event) {
-    // check if this click's coordinates are different than its touchstart/mousedown
-    var c = getCoordinates(event);
-
-    // Quick check for 0,0 which could be simulated mouse click for form submission
-    if(c.x === 0 && c.y === 0) {
-      return false;
-    }
-
-    return (c.x > startCoordinates.x + 2 ||
-            c.x < startCoordinates.x - 2 ||
-            c.y > startCoordinates.y + 2 ||
-            c.y < startCoordinates.y - 2);
-  }
-
-  function recordCoordinates(event) {
-    var c = getCoordinates(event);
-    if(c.x && c.y) {
-      var tapId = Date.now();
-
-      // only record tap coordinates if we have valid ones
-      tapCoordinates[tapId] = { x: c.x, y: c.y, id: tapId };
-
-      setTimeout(function() {
-        // delete the tap coordinates after X milliseconds, basically allowing
-        // it so a tap can happen again in the same area in the future
-        delete tapCoordinates[tapId];
-      }, CLICK_PREVENT_DURATION);
-    }
-  }
-
-  function getCoordinates(event) {
-    // This method can get coordinates for both a mouse click
-    // or a touch depending on the given event
-    var gesture = (event.gesture ? event.gesture : event);
-
-    if(gesture) {
-      var touches = gesture.touches && gesture.touches.length ? gesture.touches : [gesture];
-      var e = (gesture.changedTouches && gesture.changedTouches[0]) ||
-          (gesture.originalEvent && gesture.originalEvent.changedTouches &&
-              gesture.originalEvent.changedTouches[0]) ||
-          touches[0].originalEvent || touches[0];
-
-      if(e) return { x: e.clientX || e.pageX, y: e.clientY || e.pageY };
-    }
-    return { x:0, y:0 };
-  }
-
-  var clickPreventTimerId;
-  function removeClickPrevent(e) {
-    clearTimeout(clickPreventTimerId);
-    clickPreventTimerId = setTimeout(function(){
-      var tap = isRecentTap(e);
-      if(tap) delete tapCoordinates[tap.id];
-      startCoordinates = {};
-    }, REMOVE_PREVENT_DELAY);
-  }
-
-  function stopEvent(e){
+function tapMouseUp(e) {
+  if(tapEnabledTouchEvents) {
     e.stopPropagation();
     e.preventDefault();
     return false;
   }
 
-  function blurActive() {
-    var ele = document.activeElement;
-    if(ele && (ele.tagName === "INPUT" ||
-               ele.tagName === "TEXTAREA")) {
-      // using a timeout to prevent funky scrolling while a keyboard hides
-      setTimeout(function(){
-        ele.blur();
-      }, 400);
+  if( tapIgnoreEvent(e) || e.target.tagName === 'SELECT' ) return false;
+
+  if( !tapHasPointerMoved(e) ) {
+    tapClick(e);
+  }
+  tapEventListener('mousemove', false);
+  ionic.activator.end();
+  tapPointerMoved = false;
+}
+
+function tapMouseMove(e) {
+  if( tapHasPointerMoved(e) ) {
+    tapEventListener('mousemove', false);
+    ionic.activator.end();
+    tapPointerMoved = true;
+    return false;
+  }
+}
+
+
+// TOUCH
+function tapTouchStart(e) {
+  if( tapIgnoreEvent(e) ) return;
+
+  tapPointerMoved = false;
+
+  tapEnableTouchEvents();
+  tapPointerStart = getPointerCoordinates(e);
+
+  tapEventListener('touchmove');
+  ionic.activator.start(e);
+
+  if( ionic.Platform.isIOS() && ionic.tap.isLabelWithTextInput(e.target) ) {
+    // if the tapped element is a label, which has a child input
+    // then preventDefault so iOS doesn't ugly auto scroll to the input
+    // but do not prevent default on Android or else you cannot move the text caret
+    // and do not prevent default on Android or else no virtual keyboard shows up
+
+    var textInput = tapTargetElement( tapContainingElement(e.target) );
+    if( textInput !== tapActiveEle ) {
+      // don't preventDefault on an already focused input or else iOS's text caret isn't usable
+      e.preventDefault();
     }
   }
+}
 
-  function recordStartCoordinates(e) {
-    startCoordinates = getCoordinates(e);
+function tapTouchEnd(e) {
+  if( tapIgnoreEvent(e) ) return;
+
+  tapEnableTouchEvents();
+  if( !tapHasPointerMoved(e) ) {
+    tapClick(e);
   }
 
-  var tapCoordinates = {}; // used to remember coordinates to ignore if they happen again quickly
-  var startCoordinates = {}; // used to remember where the coordinates of the start of the tap
-  var CLICK_PREVENT_DURATION = 1500; // max milliseconds ghostclicks in the same area should be prevented
-  var REMOVE_PREVENT_DELAY = 380; // delay after a touchend/mouseup before removing the ghostclick prevent
-  var HIT_RADIUS = 15;
+  tapTouchCancel();
+}
 
-  ionic.Platform.ready(function(){
+function tapTouchMove(e) {
+  if( tapHasPointerMoved(e) ) {
+    tapPointerMoved = true;
+    tapEventListener('touchmove', false);
+    ionic.activator.end();
+    return false;
+  }
+}
 
-    if(ionic.Platform.grade === 'c') {
-      // low performing phones should have a longer ghostclick prevent
-      REMOVE_PREVENT_DELAY = 800;
+function tapTouchCancel(e) {
+  tapEventListener('touchmove', false);
+  ionic.activator.end();
+  tapPointerMoved = false;
+}
+
+function tapEnableTouchEvents() {
+  tapEnabledTouchEvents = true;
+  clearTimeout(tapMouseResetTimer);
+  tapMouseResetTimer = setTimeout(function(){
+    tapEnabledTouchEvents = false;
+  }, 2000);
+}
+
+function tapIgnoreEvent(e) {
+  if(e.isTapHandled) return true;
+  e.isTapHandled = true;
+
+  if( ionic.scroll.isScrolling && ionic.tap.containsOrIsTextInput(e.target) ) {
+    e.preventDefault();
+    return true;
+  }
+}
+
+function tapHandleFocus(ele) {
+  tapTouchFocusedInput = null;
+
+  var triggerFocusIn = false;
+
+  if(ele.tagName == 'SELECT') {
+    // trick to force Android options to show up
+    triggerMouseEvent('mousedown', ele, 0, 0);
+    ele.focus && ele.focus();
+    triggerFocusIn = true;
+
+  } else if(tapActiveElement() === ele) {
+    // already is the active element and has focus
+    triggerFocusIn = true;
+
+  } else if( (/input|textarea/i).test(ele.tagName) ) {
+    triggerFocusIn = true;
+    ele.focus && ele.focus();
+    ele.value = ele.value;
+    if( tapEnabledTouchEvents ) {
+      tapTouchFocusedInput = ele;
     }
 
-    // set global click handler and check if the event should stop or not
-    document.addEventListener('click', preventGhostClick, true);
+  } else {
+    tapFocusOutActive();
+  }
 
-    // global release event listener polyfill for HTML elements that were tapped or held
-    ionic.on("release", tapPolyfill, document);
+  if(triggerFocusIn) {
+    tapActiveElement(ele);
+    ionic.trigger('ionic.focusin', {
+      target: ele
+    }, true);
+  }
+}
 
-    // listeners used to remove ghostclick prevention
-    document.addEventListener('touchend', removeClickPrevent, false);
-    document.addEventListener('mouseup', removeClickPrevent, false);
+function tapFocusOutActive() {
+  var ele = tapActiveElement();
+  if(ele && (/input|textarea|select/i).test(ele.tagName) ) {
+    void 0;
+    ele.blur();
+  }
+  tapActiveElement(null);
+}
 
-    // in the case the user touched the screen, then scrolled, it shouldn't fire the click
-    document.addEventListener('touchstart', recordStartCoordinates, false);
-    document.addEventListener('mousedown', recordStartCoordinates, false);
-  });
+function tapFocusIn(e) {
+  // Because a text input doesn't preventDefault (so the caret still works) there's a chance
+  // that it's mousedown event 300ms later will change the focus to another element after
+  // the keyboard shows up.
 
-})(this, document, ionic);
+  if( tapEnabledTouchEvents &&
+      ionic.tap.isTextInput( tapActiveElement() ) &&
+      ionic.tap.isTextInput(tapTouchFocusedInput) &&
+      tapTouchFocusedInput !== e.target ) {
+
+    // 1) The pointer is from touch events
+    // 2) There is an active element which is a text input
+    // 3) A text input was just set to be focused on by a touch event
+    // 4) A new focus has been set, however the target isn't the one the touch event wanted
+    void 0;
+    tapTouchFocusedInput.focus();
+    tapTouchFocusedInput = null;
+  }
+  ionic.scroll.isScrolling = false;
+}
+
+function tapFocusOut() {
+  tapActiveElement(null);
+}
+
+function tapActiveElement(ele) {
+  if(arguments.length) {
+    tapActiveEle = ele;
+  }
+  return tapActiveEle || document.activeElement;
+}
+
+function tapHasPointerMoved(endEvent) {
+  if(!endEvent || !tapPointerStart || ( tapPointerStart.x === 0 && tapPointerStart.y === 0 )) {
+    return false;
+  }
+  var endCoordinates = getPointerCoordinates(endEvent);
+
+  return Math.abs(tapPointerStart.x - endCoordinates.x) > TAP_RELEASE_TOLERANCE ||
+         Math.abs(tapPointerStart.y - endCoordinates.y) > TAP_RELEASE_TOLERANCE;
+}
+
+function getPointerCoordinates(event) {
+  // This method can get coordinates for both a mouse click
+  // or a touch depending on the given event
+  var c = { x:0, y:0 };
+  if(event) {
+    var touches = event.touches && event.touches.length ? event.touches : [event];
+    var e = (event.changedTouches && event.changedTouches[0]) || touches[0];
+    if(e) {
+      c.x = e.clientX || e.pageX || 0;
+      c.y = e.clientY || e.pageY || 0;
+    }
+  }
+  return c;
+}
+
+function tapContainingElement(ele, allowSelf) {
+  var climbEle = ele;
+  for(var x=0; x<6; x++) {
+    if(!climbEle) break;
+    if(climbEle.tagName === 'LABEL') return climbEle;
+    climbEle = ele.parentElement;
+  }
+  if(allowSelf !== false) return ele;
+}
+
+function tapTargetElement(ele) {
+  if(ele && ele.tagName === 'LABEL') {
+    if(ele.control) return ele.control;
+
+    // older devices do not support the "control" property
+    if(ele.querySelector) {
+      var control = ele.querySelector('input,textarea,select');
+      if(control) return control;
+    }
+  }
+  return ele;
+}
+
+ionic.DomUtil.ready(function(){
+  ionic.tap.register(document);
+});
 
 (function(document, ionic) {
   'use strict';
@@ -2570,23 +2891,27 @@ window.ionic = {
   var queueElements = {};   // elements that should get an active state in XX milliseconds
   var activeElements = {};  // elements that are currently active
   var keyId = 0;            // a counter for unique keys for the above ojects
+  var ACTIVATED_CLASS = 'activated';
 
   ionic.activator = {
 
     start: function(e) {
+      var self = this;
+
       // when an element is touched/clicked, it climbs up a few
       // parents to see if it is an .item or .button element
       ionic.requestAnimationFrame(function(){
+        if ( ionic.tap.requiresNativeClick(e.target) ) return;
         var ele = e.target;
         var eleToActivate;
 
         for(var x=0; x<4; x++) {
-          if(!ele) break;
+          if(!ele || ele.nodeType !== 1) break;
           if(eleToActivate && ele.classList.contains('item')) {
             eleToActivate = ele;
             break;
           }
-          if( ele.tagName == 'A' || ele.tagName == 'BUTTON' || ele.getAttribute('ng-click') ) {
+          if( ele.tagName == 'A' || ele.tagName == 'BUTTON' || ele.hasAttribute('ng-click') ) {
             eleToActivate = ele;
           }
           if( ele.classList.contains('button') ) {
@@ -2601,13 +2926,9 @@ window.ionic = {
           queueElements[keyId] = eleToActivate;
 
           // in XX milliseconds, set the queued elements to active
-          // add listeners to clear all queued/active elements onMove
           if(e.type === 'touchstart') {
-            document.body.removeEventListener('mousedown', ionic.activator.start);
-            document.body.addEventListener('touchmove', clear, false);
-            setTimeout(activateElements, 85);
+            self._activateTimeout = setTimeout(activateElements, 80);
           } else {
-            document.body.addEventListener('mousemove', clear, false);
             ionic.requestAnimationFrame(activateElements);
           }
 
@@ -2615,14 +2936,29 @@ window.ionic = {
         }
 
       });
+    },
+
+    end: function() {
+      // clear out any active/queued elements after XX milliseconds
+      clearTimeout(this._activateTimeout)
+      setTimeout(clear, 200);
     }
+
   };
+
+  function clear() {
+    // clear out any elements that are queued to be set to active
+    queueElements = {};
+
+    // in the next frame, remove the active class from all active elements
+    ionic.requestAnimationFrame(deactivateElements);
+  }
 
   function activateElements() {
     // activate all elements in the queue
     for(var key in queueElements) {
       if(queueElements[key]) {
-        queueElements[key].classList.add('active');
+        queueElements[key].classList.add(ACTIVATED_CLASS);
         activeElements[key] = queueElements[key];
       }
     }
@@ -2632,40 +2968,11 @@ window.ionic = {
   function deactivateElements() {
     for(var key in activeElements) {
       if(activeElements[key]) {
-        activeElements[key].classList.remove('active');
+        activeElements[key].classList.remove(ACTIVATED_CLASS);
         delete activeElements[key];
       }
     }
   }
-
-  function onEnd(e) {
-    // clear out any active/queued elements after XX milliseconds
-    setTimeout(clear, 200);
-  }
-
-  function clear() {
-    // clear out any elements that are queued to be set to active
-    queueElements = {};
-
-    // in the next frame, remove the active class from all active elements
-    ionic.requestAnimationFrame(deactivateElements);
-
-    // remove onMove listeners that clear out active elements
-    document.body.removeEventListener('mousemove', clear);
-    document.body.removeEventListener('touchmove', clear);
-  }
-
-  // use window.onload because this doesn't need to run immediately
-  window.addEventListener('load', function(){
-    // start an active element
-    document.body.addEventListener('touchstart', ionic.activator.start, false);
-    document.body.addEventListener('mousedown', ionic.activator.start, false);
-
-    // clear all active elements after XX milliseconds
-    document.body.addEventListener('touchend', onEnd, false);
-    document.body.addEventListener('mouseup', onEnd, false);
-    document.body.addEventListener('touchcancel', onEnd, false);
-  }, false);
 
 })(document, ionic);
 
@@ -2855,57 +3162,405 @@ window.ionic = {
 
 })(window.ionic);
 
-(function(ionic) {
 
-ionic.Platform.ready(function() {
-  if (ionic.Platform.is('android')) {
-    androidKeyboardFix();
+/*
+IONIC KEYBOARD
+---------------
+
+*/
+
+var keyboardViewportHeight = window.innerHeight;
+var keyboardIsOpen;
+var keyboardActiveElement;
+var keyboardFocusOutTimer;
+var keyboardFocusInTimer;
+var keyboardLastShow = 0;
+
+var KEYBOARD_OPEN_CSS = 'keyboard-open';
+var SCROLL_CONTAINER_CSS = 'scroll';
+
+ionic.keyboard = {
+  isOpen: false,
+  height: null,
+  landscape: false,
+};
+
+function keyboardInit() {
+  if( keyboardHasPlugin() ) {
+    window.addEventListener('native.showkeyboard', keyboardNativeShow);
+    window.addEventListener('native.hidekeyboard', keyboardFocusOut);
   }
-});
+  else {
+    document.body.addEventListener('focusout', keyboardFocusOut);
+  }
 
-function androidKeyboardFix() {
-  var rememberedDeviceWidth = window.innerWidth;
-  var rememberedDeviceHeight = window.innerHeight;
-  var keyboardHeight;
+  document.body.addEventListener('ionic.focusin', keyboardBrowserFocusIn);
+  document.body.addEventListener('focusin', keyboardBrowserFocusIn);
 
-  window.addEventListener('resize', resize);
+  document.body.addEventListener('orientationchange', keyboardOrientationChange);
 
-  function resize() {
+  document.removeEventListener('touchstart', keyboardInit);
+}
 
-    //If the width of the window changes, we have an orientation change
-    if (rememberedDeviceWidth !== window.innerWidth) {
-      rememberedDeviceWidth = window.innerWidth;
-      rememberedDeviceHeight = window.innerHeight;
-      void 0;
+function keyboardNativeShow(e) {
+  clearTimeout(keyboardFocusOutTimer);
+  ionic.keyboard.height = e.keyboardHeight;
+}
 
-    //If the height changes, and it's less than before, we have a keyboard open
-    } else if (rememberedDeviceHeight !== window.innerHeight &&
-               window.innerHeight < rememberedDeviceHeight) {
-      document.body.classList.add('footer-hide');
-      //Wait for next frame so document.activeElement is set
-      ionic.requestAnimationFrame(handleKeyboardChange);
-    } else {
-      //Otherwise we have a keyboard close or a *really* weird resize
-      document.body.classList.remove('footer-hide');
-    }
+function keyboardBrowserFocusIn(e) {
+  if( !e.target || !ionic.tap.isTextInput(e.target) || !keyboardIsWithinScroll(e.target) ) return;
 
-    function handleKeyboardChange() {
-      //keyboard opens
-      keyboardHeight = rememberedDeviceHeight - window.innerHeight;
-      var activeEl = document.activeElement;
-      if (activeEl) {
-        //This event is caught by the nearest parent scrollView
-        //of the activeElement
-        ionic.trigger('scrollChildIntoView', {
-          target: activeEl
-        }, true);
+  document.addEventListener('keydown', keyboardOnKeyDown, false);
+
+  document.body.scrollTop = 0;
+  document.body.querySelector('.scroll-content').scrollTop = 0;
+
+  keyboardActiveElement = e.target;
+
+  keyboardSetShow(e);
+}
+
+function keyboardSetShow(e) {
+  clearTimeout(keyboardFocusInTimer);
+  clearTimeout(keyboardFocusOutTimer);
+
+  keyboardFocusInTimer = setTimeout(function(){
+    if ( keyboardLastShow + 350 > Date.now() ) return; 
+    keyboardLastShow = Date.now();
+    var keyboardHeight; 
+    var elementBounds = keyboardActiveElement.getBoundingClientRect();
+    var count = 0;
+
+    var pollKeyboardHeight = setInterval(function(){
+
+      keyboardHeight = keyboardGetHeight();
+      if (count > 10){
+        clearInterval(pollKeyboardHeight);
+        //waited long enough, just guess
+        keyboardHeight = 275;
       }
+      if (keyboardHeight){
+        keyboardShow(e.target, elementBounds.top, elementBounds.bottom, keyboardViewportHeight, keyboardHeight);
+        clearInterval(pollKeyboardHeight);
+      }
+      count++;
+      
+    }, 100); 
+  }, 32);
+}
 
-    }
+function keyboardShow(element, elementTop, elementBottom, viewportHeight, keyboardHeight) {
+  var details = {
+    target: element,
+    elementTop: Math.round(elementTop),
+    elementBottom: Math.round(elementBottom),
+    keyboardHeight: keyboardHeight
+  };
+
+  details.hasPlugin = keyboardHasPlugin();
+
+  details.contentHeight = viewportHeight - keyboardHeight;
+
+  void 0;
+
+  // distance from top of input to the top of the keyboard
+  details.keyboardTopOffset = details.elementTop - details.contentHeight;
+
+  void 0;
+
+  // figure out if the element is under the keyboard
+  details.isElementUnderKeyboard = (details.elementBottom > details.contentHeight);
+
+  ionic.keyboard.isOpen = true;
+
+  // send event so the scroll view adjusts
+  keyboardActiveElement = element;
+  ionic.trigger('scrollChildIntoView', details, true);
+
+  ionic.requestAnimationFrame(function(){
+    document.body.classList.add(KEYBOARD_OPEN_CSS);
+  });
+
+  // any showing part of the document that isn't within the scroll the user
+  // could touchmove and cause some ugly changes to the app, so disable
+  // any touchmove events while the keyboard is open using e.preventDefault()
+  document.addEventListener('touchmove', keyboardPreventDefault, false);
+
+  return details;
+}
+
+function keyboardFocusOut(e) {
+  clearTimeout(keyboardFocusInTimer);
+  clearTimeout(keyboardFocusOutTimer);
+
+  keyboardFocusOutTimer = setTimeout(keyboardHide, 350);
+}
+
+function keyboardHide() {
+  void 0;
+  ionic.keyboard.isOpen = false;
+
+  ionic.trigger('resetScrollView', {
+    target: keyboardActiveElement
+  }, true);
+
+  ionic.requestAnimationFrame(function(){
+    document.body.classList.remove(KEYBOARD_OPEN_CSS);
+  });
+
+  // the keyboard is gone now, remove the touchmove that disables native scroll
+  document.removeEventListener('touchmove', keyboardPreventDefault);
+  document.removeEventListener('keydown', keyboardOnKeyDown);
+}
+
+function keyboardUpdateViewportHeight() {
+  if( window.innerHeight > keyboardViewportHeight ) {
+    keyboardViewportHeight = window.innerHeight;
   }
 }
 
-})(window.ionic);
+function keyboardOnKeyDown(e) {
+  if( ionic.scroll.isScrolling ) {
+    keyboardPreventDefault(e);
+  }
+}
+
+function keyboardPreventDefault(e) {
+  e.preventDefault();
+}
+
+function keyboardOrientationChange() {
+  var updatedViewportHeight = window.innerHeight;
+
+  //too slow, have to wait for updated height
+  if (updatedViewportHeight === keyboardViewportHeight){
+    var count = 0;
+    var pollViewportHeight = setInterval(function(){
+      //give up
+      if (count > 10){
+        clearInterval(pollViewportHeight);
+      }
+
+      updatedViewportHeight = window.innerHeight;
+      
+      if (updatedViewportHeight !== keyboardViewportHeight){
+        if (updatedViewportHeight < keyboardViewportHeight){
+          ionic.keyboard.landscape = true; 
+        }
+        else {
+          ionic.keyboard.landscape = false;
+        }
+        keyboardViewportHeight = updatedViewportHeight;
+        clearInterval(pollViewportHeight);
+      }
+      count++;
+
+    }, 50);
+  }
+  else {
+    keyboardViewportHeight = updatedViewportHeight;    
+  }
+}
+
+function keyboardGetHeight() {
+  // check if we are already have a keyboard height from the plugin
+  if ( ionic.keyboard.height ) {
+    return ionic.keyboard.height;
+  }
+
+  if ( ionic.Platform.isAndroid() ){
+    //should be using the plugin, no way to know how big the keyboard is, so guess
+    if ( ionic.Platform.isFullScreen ){
+      return 275;
+    }
+    //otherwise, wait for the screen to resize
+    if ( window.innerHeight < keyboardViewportHeight ){
+      return keyboardViewportHeight - window.innerHeight;
+    }
+    else {
+      return 0;
+    }
+  }
+
+  // fallback for when its the webview without the plugin
+  // or for just the standard web browser
+  if( ionic.Platform.isIOS() ) {
+    if ( ionic.keyboard.landscape ){
+      return 206;
+    }
+
+    if (!ionic.Platform.isWebView()){
+      return 216;
+    }
+
+    return 260;
+  }
+
+  // safe guess
+  return 275;
+}
+
+function keyboardIsWithinScroll(ele) {
+  while(ele) {
+    if(ele.classList.contains(SCROLL_CONTAINER_CSS)) {
+      return true;
+    }
+    ele = ele.parentElement;
+  }
+  return false;
+}
+
+function keyboardHasPlugin() {
+  return !!(window.cordova && cordova.plugins && cordova.plugins.Keyboard);
+}
+
+ionic.Platform.ready(function() {
+  keyboardUpdateViewportHeight();
+
+  // Android sometimes reports bad innerHeight on window.load
+  // try it again in a lil bit to play it safe
+  setTimeout(keyboardUpdateViewportHeight, 999);
+
+  // only initialize the adjustments for the virtual keyboard
+  // if a touchstart event happens
+  document.addEventListener('touchstart', keyboardInit, false);
+});
+
+
+
+var viewportTag;
+var viewportProperties = {};
+
+ionic.viewport = {
+  orientation: function() {
+    // 0 = Portrait
+    // 90 = Landscape
+    // not using window.orientation because each device has a different implementation
+    return (window.innerWidth > window.innerHeight ? 90 : 0);
+  }
+};
+
+function viewportLoadTag() {
+  var x;
+
+  for(x=0; x<document.head.children.length; x++) {
+    if(document.head.children[x].name == 'viewport') {
+      viewportTag = document.head.children[x];
+      break;
+    }
+  }
+
+  if(viewportTag) {
+    var props = viewportTag.content.toLowerCase().replace(/\s+/g, '').split(',');
+    var keyValue;
+    for(x=0; x<props.length; x++) {
+      if(props[x] != '') {
+        keyValue = props[x].split('=');
+        viewportProperties[ keyValue[0] ] = (keyValue.length > 1 ? keyValue[1] : '_');
+      }
+    }
+    viewportUpdate();
+  }
+}
+
+function viewportUpdate() {
+  // unit tests in viewport.unit.js
+
+  var initWidth = viewportProperties.width;
+  var initHeight = viewportProperties.height;
+  var p = ionic.Platform;
+  var version = p.version();
+  var DEVICE_WIDTH = 'device-width';
+  var DEVICE_HEIGHT = 'device-height';
+  var orientation = ionic.viewport.orientation();
+
+  // Most times we're removing the height and adding the width
+  // So this is the default to start with, then modify per platform/version/oreintation
+  delete viewportProperties.height;
+  viewportProperties.width = DEVICE_WIDTH;
+
+  if( p.isIPad() ) {
+    // iPad
+
+    if( version > 7 ) {
+      // iPad >= 7.1
+      // https://issues.apache.org/jira/browse/CB-4323
+      delete viewportProperties.width;
+
+    } else {
+      // iPad <= 7.0
+
+      if( p.isWebView() ) {
+        // iPad <= 7.0 WebView
+
+        if( orientation == 90 ) {
+          // iPad <= 7.0 WebView Landscape
+          viewportProperties.height = '0';
+
+        } else if(version == 7) {
+          // iPad <= 7.0 WebView Portait
+          viewportProperties.height = DEVICE_HEIGHT;
+        }
+      } else {
+        // iPad <= 6.1 Browser
+        if(version < 7) {
+          viewportProperties.height = '0';
+        }
+      }
+    }
+
+  } else if( p.isIOS() ) {
+    // iPhone
+
+    if( p.isWebView() ) {
+      // iPhone WebView
+
+      if(version > 7) {
+        // iPhone >= 7.1 WebView
+        delete viewportProperties.width;
+
+      } else if(version < 7) {
+        // iPhone <= 6.1 WebView
+        // if height was set it needs to get removed with this hack for <= 6.1
+        if( initHeight ) viewportProperties.height = '0';
+      }
+
+    } else {
+      // iPhone Browser
+
+      if (version < 7) {
+        // iPhone <= 6.1 Browser
+        // if height was set it needs to get removed with this hack for <= 6.1
+        if( initHeight ) viewportProperties.height = '0';
+      }
+    }
+
+  }
+
+  // only update the viewport tag if there was a change
+  if(initWidth !== viewportProperties.width || initHeight !== viewportProperties.height) {
+    viewportTagUpdate();
+  }
+}
+
+function viewportTagUpdate() {
+  var key, props = [];
+  for(key in viewportProperties) {
+    if( viewportProperties[key] ) {
+      props.push(key + (viewportProperties[key] == '_' ? '' : '=' + viewportProperties[key]) );
+    }
+  }
+
+  viewportTag.content = props.join(', ');
+}
+
+ionic.Platform.ready(function() {
+  viewportLoadTag();
+
+  window.addEventListener("orientationchange", function(){
+    setTimeout(viewportUpdate, 1000);
+  }, false);
+});
 
 (function(ionic) {
 'use strict';
@@ -2921,8 +3576,6 @@ function androidKeyboardFix() {
 
 })(window.ionic);
 
-var IS_INPUT_LIKE_REGEX = /input|textarea|select/i;
-var IS_EMBEDDED_OBJECT_REGEX = /object|embed/i;
 /*
  * Scroller
  * http://github.com/zynga/scroller
@@ -2947,219 +3600,212 @@ var IS_EMBEDDED_OBJECT_REGEX = /object|embed/i;
  * rendering. This eases a lot of cases where it might be pretty complex to break down a state
  * based on the pure time difference.
  */
+var zyngaCore = { effect: {} };
 (function(global) {
-	var time = Date.now || function() {
-		return +new Date();
-	};
-	var desiredFrames = 60;
-	var millisecondsPerSecond = 1000;
-	var running = {};
-	var counter = 1;
+  var time = Date.now || function() {
+    return +new Date();
+  };
+  var desiredFrames = 60;
+  var millisecondsPerSecond = 1000;
+  var running = {};
+  var counter = 1;
 
-	// Create namespaces
-	if (!global.core) {
-		var core = global.core = { effect : {} };
+  zyngaCore.effect.Animate = {
 
-	} else if (!core.effect) {
-		core.effect = {};
-	}
+    /**
+     * A requestAnimationFrame wrapper / polyfill.
+     *
+     * @param callback {Function} The callback to be invoked before the next repaint.
+     * @param root {HTMLElement} The root element for the repaint
+     */
+    requestAnimationFrame: (function() {
 
-	core.effect.Animate = {
+      // Check for request animation Frame support
+      var requestFrame = global.requestAnimationFrame || global.webkitRequestAnimationFrame || global.mozRequestAnimationFrame || global.oRequestAnimationFrame;
+      var isNative = !!requestFrame;
 
-		/**
-		 * A requestAnimationFrame wrapper / polyfill.
-		 *
-		 * @param callback {Function} The callback to be invoked before the next repaint.
-		 * @param root {HTMLElement} The root element for the repaint
-		 */
-		requestAnimationFrame: (function() {
+      if (requestFrame && !/requestAnimationFrame\(\)\s*\{\s*\[native code\]\s*\}/i.test(requestFrame.toString())) {
+        isNative = false;
+      }
 
-			// Check for request animation Frame support
-			var requestFrame = global.requestAnimationFrame || global.webkitRequestAnimationFrame || global.mozRequestAnimationFrame || global.oRequestAnimationFrame;
-			var isNative = !!requestFrame;
+      if (isNative) {
+        return function(callback, root) {
+          requestFrame(callback, root)
+        };
+      }
 
-			if (requestFrame && !/requestAnimationFrame\(\)\s*\{\s*\[native code\]\s*\}/i.test(requestFrame.toString())) {
-				isNative = false;
-			}
+      var TARGET_FPS = 60;
+      var requests = {};
+      var requestCount = 0;
+      var rafHandle = 1;
+      var intervalHandle = null;
+      var lastActive = +new Date();
 
-			if (isNative) {
-				return function(callback, root) {
-					requestFrame(callback, root)
-				};
-			}
+      return function(callback, root) {
+        var callbackHandle = rafHandle++;
 
-			var TARGET_FPS = 60;
-			var requests = {};
-			var requestCount = 0;
-			var rafHandle = 1;
-			var intervalHandle = null;
-			var lastActive = +new Date();
+        // Store callback
+        requests[callbackHandle] = callback;
+        requestCount++;
 
-			return function(callback, root) {
-				var callbackHandle = rafHandle++;
+        // Create timeout at first request
+        if (intervalHandle === null) {
 
-				// Store callback
-				requests[callbackHandle] = callback;
-				requestCount++;
+          intervalHandle = setInterval(function() {
 
-				// Create timeout at first request
-				if (intervalHandle === null) {
+            var time = +new Date();
+            var currentRequests = requests;
 
-					intervalHandle = setInterval(function() {
+            // Reset data structure before executing callbacks
+            requests = {};
+            requestCount = 0;
 
-						var time = +new Date();
-						var currentRequests = requests;
+            for(var key in currentRequests) {
+              if (currentRequests.hasOwnProperty(key)) {
+                currentRequests[key](time);
+                lastActive = time;
+              }
+            }
 
-						// Reset data structure before executing callbacks
-						requests = {};
-						requestCount = 0;
+            // Disable the timeout when nothing happens for a certain
+            // period of time
+            if (time - lastActive > 2500) {
+              clearInterval(intervalHandle);
+              intervalHandle = null;
+            }
 
-						for(var key in currentRequests) {
-							if (currentRequests.hasOwnProperty(key)) {
-								currentRequests[key](time);
-								lastActive = time;
-							}
-						}
+          }, 1000 / TARGET_FPS);
+        }
 
-						// Disable the timeout when nothing happens for a certain
-						// period of time
-						if (time - lastActive > 2500) {
-							clearInterval(intervalHandle);
-							intervalHandle = null;
-						}
+        return callbackHandle;
+      };
 
-					}, 1000 / TARGET_FPS);
-				}
-
-				return callbackHandle;
-			};
-
-		})(),
+    })(),
 
 
-		/**
-		 * Stops the given animation.
-		 *
-		 * @param id {Integer} Unique animation ID
-		 * @return {Boolean} Whether the animation was stopped (aka, was running before)
-		 */
-		stop: function(id) {
-			var cleared = running[id] != null;
-			if (cleared) {
-				running[id] = null;
-			}
+    /**
+     * Stops the given animation.
+     *
+     * @param id {Integer} Unique animation ID
+     * @return {Boolean} Whether the animation was stopped (aka, was running before)
+     */
+    stop: function(id) {
+      var cleared = running[id] != null;
+      if (cleared) {
+        running[id] = null;
+      }
 
-			return cleared;
-		},
-
-
-		/**
-		 * Whether the given animation is still running.
-		 *
-		 * @param id {Integer} Unique animation ID
-		 * @return {Boolean} Whether the animation is still running
-		 */
-		isRunning: function(id) {
-			return running[id] != null;
-		},
+      return cleared;
+    },
 
 
-		/**
-		 * Start the animation.
-		 *
-		 * @param stepCallback {Function} Pointer to function which is executed on every step.
-		 *   Signature of the method should be `function(percent, now, virtual) { return continueWithAnimation; }`
-		 * @param verifyCallback {Function} Executed before every animation step.
-		 *   Signature of the method should be `function() { return continueWithAnimation; }`
-		 * @param completedCallback {Function}
-		 *   Signature of the method should be `function(droppedFrames, finishedAnimation) {}`
-		 * @param duration {Integer} Milliseconds to run the animation
-		 * @param easingMethod {Function} Pointer to easing function
-		 *   Signature of the method should be `function(percent) { return modifiedValue; }`
-		 * @param root {Element} Render root, when available. Used for internal
-		 *   usage of requestAnimationFrame.
-		 * @return {Integer} Identifier of animation. Can be used to stop it any time.
-		 */
-		start: function(stepCallback, verifyCallback, completedCallback, duration, easingMethod, root) {
+    /**
+     * Whether the given animation is still running.
+     *
+     * @param id {Integer} Unique animation ID
+     * @return {Boolean} Whether the animation is still running
+     */
+    isRunning: function(id) {
+      return running[id] != null;
+    },
 
-			var start = time();
-			var lastFrame = start;
-			var percent = 0;
-			var dropCounter = 0;
-			var id = counter++;
 
-			if (!root) {
-				root = document.body;
-			}
+    /**
+     * Start the animation.
+     *
+     * @param stepCallback {Function} Pointer to function which is executed on every step.
+     *   Signature of the method should be `function(percent, now, virtual) { return continueWithAnimation; }`
+     * @param verifyCallback {Function} Executed before every animation step.
+     *   Signature of the method should be `function() { return continueWithAnimation; }`
+     * @param completedCallback {Function}
+     *   Signature of the method should be `function(droppedFrames, finishedAnimation) {}`
+     * @param duration {Integer} Milliseconds to run the animation
+     * @param easingMethod {Function} Pointer to easing function
+     *   Signature of the method should be `function(percent) { return modifiedValue; }`
+     * @param root {Element} Render root, when available. Used for internal
+     *   usage of requestAnimationFrame.
+     * @return {Integer} Identifier of animation. Can be used to stop it any time.
+     */
+    start: function(stepCallback, verifyCallback, completedCallback, duration, easingMethod, root) {
 
-			// Compacting running db automatically every few new animations
-			if (id % 20 === 0) {
-				var newRunning = {};
-				for (var usedId in running) {
-					newRunning[usedId] = true;
-				}
-				running = newRunning;
-			}
+      var start = time();
+      var lastFrame = start;
+      var percent = 0;
+      var dropCounter = 0;
+      var id = counter++;
 
-			// This is the internal step method which is called every few milliseconds
-			var step = function(virtual) {
+      if (!root) {
+        root = document.body;
+      }
 
-				// Normalize virtual value
-				var render = virtual !== true;
+      // Compacting running db automatically every few new animations
+      if (id % 20 === 0) {
+        var newRunning = {};
+        for (var usedId in running) {
+          newRunning[usedId] = true;
+        }
+        running = newRunning;
+      }
 
-				// Get current time
-				var now = time();
+      // This is the internal step method which is called every few milliseconds
+      var step = function(virtual) {
 
-				// Verification is executed before next animation step
-				if (!running[id] || (verifyCallback && !verifyCallback(id))) {
+        // Normalize virtual value
+        var render = virtual !== true;
 
-					running[id] = null;
-					completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, false);
-					return;
+        // Get current time
+        var now = time();
 
-				}
+        // Verification is executed before next animation step
+        if (!running[id] || (verifyCallback && !verifyCallback(id))) {
 
-				// For the current rendering to apply let's update omitted steps in memory.
-				// This is important to bring internal state variables up-to-date with progress in time.
-				if (render) {
+          running[id] = null;
+          completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, false);
+          return;
 
-					var droppedFrames = Math.round((now - lastFrame) / (millisecondsPerSecond / desiredFrames)) - 1;
-					for (var j = 0; j < Math.min(droppedFrames, 4); j++) {
-						step(true);
-						dropCounter++;
-					}
+        }
 
-				}
+        // For the current rendering to apply let's update omitted steps in memory.
+        // This is important to bring internal state variables up-to-date with progress in time.
+        if (render) {
 
-				// Compute percent value
-				if (duration) {
-					percent = (now - start) / duration;
-					if (percent > 1) {
-						percent = 1;
-					}
-				}
+          var droppedFrames = Math.round((now - lastFrame) / (millisecondsPerSecond / desiredFrames)) - 1;
+          for (var j = 0; j < Math.min(droppedFrames, 4); j++) {
+            step(true);
+            dropCounter++;
+          }
 
-				// Execute step callback, then...
-				var value = easingMethod ? easingMethod(percent) : percent;
-				if ((stepCallback(value, now, render) === false || percent === 1) && render) {
-					running[id] = null;
-					completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, percent === 1 || duration == null);
-				} else if (render) {
-					lastFrame = now;
-					core.effect.Animate.requestAnimationFrame(step, root);
-				}
-			};
+        }
 
-			// Mark as running
-			running[id] = true;
+        // Compute percent value
+        if (duration) {
+          percent = (now - start) / duration;
+          if (percent > 1) {
+            percent = 1;
+          }
+        }
 
-			// Init first step
-			core.effect.Animate.requestAnimationFrame(step, root);
+        // Execute step callback, then...
+        var value = easingMethod ? easingMethod(percent) : percent;
+        if ((stepCallback(value, now, render) === false || percent === 1) && render) {
+          running[id] = null;
+          completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), id, percent === 1 || duration == null);
+        } else if (render) {
+          lastFrame = now;
+          zyngaCore.effect.Animate.requestAnimationFrame(step, root);
+        }
+      };
 
-			// Return unique animation ID
-			return id;
-		}
-	};
+      // Mark as running
+      running[id] = true;
+
+      // Init first step
+      zyngaCore.effect.Animate.requestAnimationFrame(step, root);
+
+      // Return unique animation ID
+      return id;
+    }
+  };
 })(this);
 
 /*
@@ -3179,28 +3825,28 @@ var IS_EMBEDDED_OBJECT_REGEX = /object|embed/i;
 var Scroller;
 
 (function(ionic) {
-	var NOOP = function(){};
+  var NOOP = function(){};
 
-	// Easing Equations (c) 2003 Robert Penner, all rights reserved.
-	// Open source under the BSD License.
+  // Easing Equations (c) 2003 Robert Penner, all rights reserved.
+  // Open source under the BSD License.
 
-	/**
-	 * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
-	**/
-	var easeOutCubic = function(pos) {
-		return (Math.pow((pos - 1), 3) + 1);
-	};
+  /**
+   * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
+  **/
+  var easeOutCubic = function(pos) {
+    return (Math.pow((pos - 1), 3) + 1);
+  };
 
-	/**
-	 * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
-	**/
-	var easeInOutCubic = function(pos) {
-		if ((pos /= 0.5) < 1) {
-			return 0.5 * Math.pow(pos, 3);
-		}
+  /**
+   * @param pos {Number} position between 0 (start of effect) and 1 (end of effect)
+  **/
+  var easeInOutCubic = function(pos) {
+    if ((pos /= 0.5) < 1) {
+      return 0.5 * Math.pow(pos, 3);
+    }
 
-		return 0.5 * (Math.pow((pos - 2), 3) + 2);
-	};
+    return 0.5 * (Math.pow((pos - 2), 3) + 2);
+  };
 
 
 /**
@@ -3226,7 +3872,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
       }
     });
 
-		this.options = {
+    this.options = {
 
       /** Disable scrolling on x-axis by default */
       scrollingX: false,
@@ -3294,18 +3940,48 @@ ionic.views.Scroll = ionic.views.View.inherit({
       penetrationAcceleration : 0.08,
 
       // The ms interval for triggering scroll events
-      scrollEventInterval: 50
+      scrollEventInterval: 10,
+
+      getContentWidth: function() {
+        return Math.max(self.__content.scrollWidth, self.__content.offsetWidth);
+      },
+      getContentHeight: function() {
+        return Math.max(self.__content.scrollHeight, self.__content.offsetHeight);
+      }
 		};
 
-		for (var key in options) {
-			this.options[key] = options[key];
-		}
+    for (var key in options) {
+      this.options[key] = options[key];
+    }
 
     this.hintResize = ionic.debounce(function() {
       self.resize();
     }, 1000, true);
 
+    this.onScroll = function() {
+
+      if(!ionic.scroll.isScrolling) {
+        setTimeout(self.setScrollStart, 50);
+      } else {
+        clearTimeout(self.scrollTimer);
+        self.scrollTimer = setTimeout(self.setScrollStop, 80);
+      }
+
+    };
+
+    this.setScrollStart = function() {
+      ionic.scroll.isScrolling = Math.abs(ionic.scroll.lastTop - self.__scrollTop) > 1;
+      clearTimeout(self.scrollTimer);
+      self.scrollTimer = setTimeout(self.setScrollStop, 80);
+    };
+
+    this.setScrollStop = function() {
+      ionic.scroll.isScrolling = false;
+      ionic.scroll.lastTop = self.__scrollTop;
+    };
+
     this.triggerScrollEvent = ionic.throttle(function() {
+      self.onScroll();
       ionic.trigger('scroll', {
         scrollTop: self.__scrollTop,
         scrollLeft: self.__scrollLeft,
@@ -3326,7 +4002,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     // Get the render update function, initialize event handlers,
     // and calculate the size of the scroll container
-		this.__callback = this.getRenderFn();
+    this.__callback = this.getRenderFn();
     this.__initEventHandlers();
     this.__createScrollbars();
 
@@ -3337,7 +4013,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     // Fade them out
     this.__fadeScrollbars('out', this.options.scrollbarResizeFadeDelay);
-	},
+  },
 
 
 
@@ -3522,18 +4198,41 @@ ionic.views.Scroll = ionic.views.View.inherit({
     //Broadcasted when keyboard is shown on some platforms.
     //See js/utils/keyboard.js
     container.addEventListener('scrollChildIntoView', function(e) {
-      var deviceHeight = window.innerHeight;
-      var element = e.target;
-      var elementHeight = e.target.offsetHeight;
-
-      //getBoundingClientRect() will actually give us position relative to the viewport
-      var elementDeviceTop = element.getBoundingClientRect().top;
-      var elementScrollTop = ionic.DomUtil.getPositionInParent(element, container).top;
+      if( !self.isScrolledIntoView ) {
+        // shrink scrollview so we can actually scroll if the input is hidden
+        // if it isn't shrink so we can scroll to inputs under the keyboard
+        if (ionic.Platform.isIOS() || ionic.Platform.isFullScreen){
+          container.style.height = (container.clientHeight - e.detail.keyboardHeight) + "px";
+          container.style.overflow = "visible";
+          //update scroll view
+          self.resize();
+        }
+        self.isScrolledIntoView = true;
+      }
 
       //If the element is positioned under the keyboard...
-      if (elementDeviceTop + elementHeight > deviceHeight) {
+      if( e.detail.isElementUnderKeyboard ) {
+        var delay;
+        // Wait on android for scroll view to resize
+        if ( !ionic.Platform.isFullScreen && e.detail.hasPlugin ) {
+          delay = 350;
+        }
+        else {
+          delay = 80;
+        }
+
         //Put element in middle of visible screen
-        self.scrollTo(0, elementScrollTop + elementHeight - (deviceHeight * 0.5), true);
+        //Wait for resize() to reset scroll position
+        ionic.scroll.isScrolling = true;
+        setTimeout(function(){
+          //middle of the scrollview, where we want to scroll to
+          var scrollViewMidpointOffset = container.clientHeight * 0.5;
+          var scrollTop = e.detail.keyboardTopOffset + scrollViewMidpointOffset;
+          void 0;
+          ionic.tap.cloneFocusedInput(container, self);
+          self.scrollBy(0, scrollTop, true);
+          self.onScroll();
+        }, delay);
       }
 
       //Only the first scrollView parent of the element that broadcasted this event
@@ -3541,42 +4240,105 @@ ionic.views.Scroll = ionic.views.View.inherit({
       e.stopPropagation();
     });
 
-    function shouldIgnorePress(e) {
-      // Don't react if initial down happens on a form element
-      return e.target.tagName.match(IS_INPUT_LIKE_REGEX) ||
-             e.target.isContentEditable ||
-             e.target.tagName.match(IS_EMBEDDED_OBJECT_REGEX) ||
-             e.target.dataset.preventScroll;
-    }
+    container.addEventListener('resetScrollView', function(e) {
+      //return scrollview to original height once keyboard has hidden
+      self.isScrolledIntoView = false;
+      container.style.height = "";
+      container.style.overflow = "";
+      self.resize();
+      ionic.scroll.isScrolling = false;
+    });
+
+
+    self.touchStart = function(e) {
+      self.startCoordinates = getPointerCoordinates(e);
+
+      if ( ionic.tap.ignoreScrollStart(e) ) {
+        return;
+      }
+
+      if( ionic.tap.containsOrIsTextInput(e.target) ) {
+        // do not start if the target is a text input
+        // if there is a touchmove on this input, then we can start the scroll
+        self.__hasStarted = false;
+        return;
+      }
+
+      self.__isSelectable = true;
+      self.__enableScrollY = true;
+      self.__hasStarted = true;
+      self.doTouchStart(e.touches, e.timeStamp);
+      e.preventDefault();
+    };
+
+    self.touchMove = function(e) {
+      if(e.defaultPrevented) {
+        return;
+      }
+
+      if( !self.__hasStarted && ionic.tap.containsOrIsTextInput(e.target) ) {
+        // the target is a text input and scroll has started
+        // since the text input doesn't start on touchStart, do it here
+        self.__hasStarted = true;
+        self.doTouchStart(e.touches, e.timeStamp);
+        e.preventDefault();
+        return;
+      }
+
+      if(self.startCoordinates) {
+        // we have start coordinates, so get this touch move's current coordinates
+        var currentCoordinates = getPointerCoordinates(e);
+
+        if( self.__isSelectable &&
+            ionic.tap.isTextInput(e.target) &&
+            Math.abs(self.startCoordinates.x - currentCoordinates.x) > 20 ) {
+          // user slid the text input's caret on its x axis, disable any future y scrolling
+          self.__enableScrollY = false;
+          self.__isSelectable = true;
+        }
+
+        if( self.__enableScrollY && Math.abs(self.startCoordinates.y - currentCoordinates.y) > 10 ) {
+          // user scrolled the entire view on the y axis
+          // disabled being able to select text on an input
+          // hide the input which has focus, and show a cloned one that doesn't have focus
+          self.__isSelectable = false;
+          ionic.tap.cloneFocusedInput(container, self);
+        }
+      }
+
+      self.doTouchMove(e.touches, e.timeStamp, e.scale);
+    };
+
+    self.touchEnd = function(e) {
+      self.doTouchEnd(e.timeStamp);
+      self.__hasStarted = false;
+      self.__isSelectable = true;
+      self.__enableScrollY = true;
+
+      if( !self.__isDragging && !self.__isDecelerating && !self.__isAnimating ) {
+        ionic.tap.removeClonedInputs(container, self);
+      }
+    };
+
+    self.options.orgScrollingComplete = self.options.scrollingComplete;
+    self.options.scrollingComplete = function() {
+      ionic.tap.removeClonedInputs(container, self);
+      self.options.orgScrollingComplete();
+    };
 
 
     if ('ontouchstart' in window) {
-
-      container.addEventListener("touchstart", function(e) {
-        if (e.defaultPrevented || shouldIgnorePress(e)) {
-          return;
-        }
-        self.doTouchStart(e.touches, e.timeStamp);
-        e.preventDefault();
-      }, false);
-
-      document.addEventListener("touchmove", function(e) {
-        if(e.defaultPrevented) {
-          return;
-        }
-        self.doTouchMove(e.touches, e.timeStamp);
-      }, false);
-
-      document.addEventListener("touchend", function(e) {
-        self.doTouchEnd(e.timeStamp);
-      }, false);
+      container.addEventListener("touchstart", self.touchStart, false);
+      document.addEventListener("touchmove", self.touchMove, false);
+      document.addEventListener("touchend", self.touchEnd, false);
+      document.addEventListener("touchcancel", self.touchEnd, false);
 
     } else {
 
       var mousedown = false;
 
       container.addEventListener("mousedown", function(e) {
-        if (e.defaultPrevented || shouldIgnorePress(e)) {
+        if ( ionic.tap.ignoreScrollStart(e) || e.target.tagName === 'SELECT' ) {
           return;
         }
         self.doTouchStart([{
@@ -3619,11 +4381,14 @@ ionic.views.Scroll = ionic.views.View.inherit({
         self.__fadeScrollbars('out');
       }, 100, false);
 
-      document.addEventListener("mousewheel", function(e) {
+      //For Firefox
+      document.addEventListener('mousewheel', onMouseWheel);
+      function onMouseWheel(e) {
+        self.hintResize();
         wheelShowBarFn();
         self.scrollBy(e.wheelDeltaX/self.options.wheelDampen, -e.wheelDeltaY/self.options.wheelDampen);
         wheelHideBarFn();
-      });
+      }
     }
   },
 
@@ -3834,8 +4599,8 @@ ionic.views.Scroll = ionic.views.View.inherit({
     this.setDimensions(
     	this.__container.clientWidth,
     	this.__container.clientHeight,
-    	Math.max(this.__content.scrollWidth, this.__content.offsetWidth),
-      Math.max(this.__content.scrollHeight, this.__content.offsetHeight)
+      this.options.getContentWidth(),
+      this.options.getContentHeight()
     );
   },
   /*
@@ -3849,7 +4614,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     var content = this.__content;
 
-	  var docStyle = document.documentElement.style;
+    var docStyle = document.documentElement.style;
 
     var engine;
     if ('MozAppearance' in docStyle) {
@@ -3880,28 +4645,34 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     if (helperElem.style[perspectiveProperty] !== undef) {
 
-      return function(left, top, zoom) {
-        content.style[transformProperty] = 'translate3d(' + (-left) + 'px,' + (-top) + 'px,0)';
+      return function(left, top, zoom, wasResize) {
+        content.style[transformProperty] = 'translate3d(' + (-left) + 'px,' + (-top) + 'px,0) scale(' + zoom + ')';
         self.__repositionScrollbars();
-        self.triggerScrollEvent();
+        if(!wasResize) {
+          self.triggerScrollEvent();
+        }
       };
 
     } else if (helperElem.style[transformProperty] !== undef) {
 
-      return function(left, top, zoom) {
-        content.style[transformProperty] = 'translate(' + (-left) + 'px,' + (-top) + 'px)';
+      return function(left, top, zoom, wasResize) {
+        content.style[transformProperty] = 'translate(' + (-left) + 'px,' + (-top) + 'px) scale(' + zoom + ')';
         self.__repositionScrollbars();
-        self.triggerScrollEvent();
+        if(!wasResize) {
+          self.triggerScrollEvent();
+        }
       };
 
     } else {
 
-      return function(left, top, zoom) {
+      return function(left, top, zoom, wasResize) {
         content.style.marginLeft = left ? (-left/zoom) + 'px' : '';
         content.style.marginTop = top ? (-top/zoom) + 'px' : '';
         content.style.zoom = zoom || '';
         self.__repositionScrollbars();
-        self.triggerScrollEvent();
+        if(!wasResize) {
+          self.triggerScrollEvent();
+        }
       };
 
     }
@@ -3919,7 +4690,6 @@ ionic.views.Scroll = ionic.views.View.inherit({
    * @param contentHeight {Integer} Outer height of inner element
    */
   setDimensions: function(clientWidth, clientHeight, contentWidth, contentHeight) {
-
     var self = this;
 
     // Only update values which are defined
@@ -3944,7 +4714,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
     self.__resizeScrollbars();
 
     // Refresh scroll position
-    self.scrollTo(self.__scrollLeft, self.__scrollTop, true);
+    self.scrollTo(self.__scrollLeft, self.__scrollTop, true, null, true);
 
   },
 
@@ -4088,7 +4858,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     // Stop deceleration
     if (self.__isDecelerating) {
-      core.effect.Animate.stop(self.__isDecelerating);
+      zyngaCore.effect.Animate.stop(self.__isDecelerating);
       self.__isDecelerating = false;
     }
 
@@ -4158,13 +4928,12 @@ ionic.views.Scroll = ionic.views.View.inherit({
    * @param animate {Boolean} Whether the scrolling should happen using an animation
    * @param zoom {Number} Zoom level to go to
    */
-  scrollTo: function(left, top, animate, zoom) {
-
+  scrollTo: function(left, top, animate, zoom, wasResize) {
     var self = this;
 
     // Stop deceleration
     if (self.__isDecelerating) {
-      core.effect.Animate.stop(self.__isDecelerating);
+      zyngaCore.effect.Animate.stop(self.__isDecelerating);
       self.__isDecelerating = false;
     }
 
@@ -4227,7 +4996,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
     }
 
     // Publish new values
-    self.__publish(left, top, zoom, animate);
+    self.__publish(left, top, zoom, animate, wasResize);
 
   },
 
@@ -4236,7 +5005,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
    * Scroll by the given offset
    *
    * @param left {Number} Scroll x-axis by given offset
-   * @param top {Number} Scroll x-axis by given offset
+   * @param top {Number} Scroll y-axis by given offset
    * @param animate {Boolean} Whether to animate the given change
    */
   scrollBy: function(left, top, animate) {
@@ -4296,14 +5065,14 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     // Stop deceleration
     if (self.__isDecelerating) {
-      core.effect.Animate.stop(self.__isDecelerating);
+      zyngaCore.effect.Animate.stop(self.__isDecelerating);
       self.__isDecelerating = false;
       self.__interruptedAnimation = true;
     }
 
     // Stop animation
     if (self.__isAnimating) {
-      core.effect.Animate.stop(self.__isAnimating);
+      zyngaCore.effect.Animate.stop(self.__isAnimating);
       self.__isAnimating = false;
       self.__interruptedAnimation = true;
     }
@@ -4679,14 +5448,14 @@ ionic.views.Scroll = ionic.views.View.inherit({
    * @param top {Number} Top scroll position
    * @param animate {Boolean} Whether animation should be used to move to the new coordinates
    */
-  __publish: function(left, top, zoom, animate) {
+  __publish: function(left, top, zoom, animate, wasResize) {
 
     var self = this;
 
     // Remember whether we had an animation, then we try to continue based on the current "drive" of the animation
     var wasAnimating = self.__isAnimating;
     if (wasAnimating) {
-      core.effect.Animate.stop(wasAnimating);
+      zyngaCore.effect.Animate.stop(wasAnimating);
       self.__isAnimating = false;
     }
 
@@ -4715,7 +5484,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
           // Push values out
           if (self.__callback) {
-            self.__callback(self.__scrollLeft, self.__scrollTop, self.__zoomLevel);
+            self.__callback(self.__scrollLeft, self.__scrollTop, self.__zoomLevel, wasResize);
           }
 
         }
@@ -4739,7 +5508,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
       };
 
       // When continuing based on previous animation we choose an ease-out animation instead of ease-in-out
-      self.__isAnimating = core.effect.Animate.start(step, verify, completed, self.options.animationDuration, wasAnimating ? easeOutCubic : easeInOutCubic);
+      self.__isAnimating = zyngaCore.effect.Animate.start(step, verify, completed, self.options.animationDuration, wasAnimating ? easeOutCubic : easeInOutCubic);
 
     } else {
 
@@ -4749,7 +5518,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
       // Push values out
       if (self.__callback) {
-        self.__callback(left, top, zoom);
+        self.__callback(left, top, zoom, wasResize);
       }
 
       // Fix max scroll ranges
@@ -4871,7 +5640,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
     };
 
     // Start animation and switch on flag
-    self.__isDecelerating = core.effect.Animate.start(step, verify, completed);
+    self.__isDecelerating = zyngaCore.effect.Animate.start(step, verify, completed);
 
   },
 
@@ -5004,6 +5773,11 @@ ionic.views.Scroll = ionic.views.View.inherit({
   }
 });
 
+ionic.scroll = {
+  isScrolling: false,
+  lastTop: 0
+};
+
 })(ionic);
 
 (function(ionic) {
@@ -5057,40 +5831,44 @@ ionic.views.Scroll = ionic.views.View.inherit({
         return;
       }
 
-      var i, c, childSize;
-      var childNodes = this.el.childNodes;
-      var leftWidth = 0;
-      var rightWidth = 0;
-      var isCountingRightWidth = false;
+      var self = this;
+      //We have to rAF here so all of the elements have time to initialize
+      ionic.requestAnimationFrame(function() {
+        var i, c, childSize;
+        var childNodes = self.el.childNodes;
+        var leftWidth = 0;
+        var rightWidth = 0;
+        var isCountingRightWidth = false;
 
-      // Compute how wide the left children are
-      // Skip all titles (there may still be two titles, one leaving the dom)
-      // Once we encounter a titleEl, realize we are now counting the right-buttons, not left
-      for(i = 0; i < childNodes.length; i++) {
-        c = childNodes[i];
-        if (c.tagName && c.tagName.toLowerCase() == 'h1') {
-          isCountingRightWidth = true;
-          continue;
-        }
+        // Compute how wide the left children are
+        // Skip all titles (there may still be two titles, one leaving the dom)
+        // Once we encounter a titleEl, realize we are now counting the right-buttons, not left
+        for(i = 0; i < childNodes.length; i++) {
+          c = childNodes[i];
+          if (c.tagName && c.tagName.toLowerCase() == 'h1') {
+            isCountingRightWidth = true;
+            continue;
+          }
 
-        childSize = null;
-        if(c.nodeType == 3) {
-          childSize = ionic.DomUtil.getTextBounds(c);
-        } else if(c.nodeType == 1) {
-          childSize = c.getBoundingClientRect();
-        }
-        if(childSize) {
-          if (isCountingRightWidth) {
-            rightWidth += childSize.width;
-          } else {
-            leftWidth += childSize.width;
+          childSize = null;
+          if(c.nodeType == 3) {
+            childSize = ionic.DomUtil.getTextBounds(c).width;
+          } else if(c.nodeType == 1) {
+            childSize = c.offsetWidth;
+          }
+          if(childSize) {
+            if (isCountingRightWidth) {
+              rightWidth += childSize;
+            } else {
+              leftWidth += childSize;
+            }
           }
         }
-      }
 
-      var self = this;
-      ionic.requestAnimationFrame(function() {
         var margin = Math.max(leftWidth, rightWidth) + 10;
+
+        //Reset left and right before setting again
+        titleEl.style.left = titleEl.style.right = '';
 
         // Size and align the header titleEl based on the sizes of the left and
         // right children, and the desired alignment mode
@@ -5145,17 +5923,20 @@ ionic.views.Scroll = ionic.views.View.inherit({
     }
   };
 
-
-
   var SlideDrag = function(opts) {
     this.dragThresholdX = opts.dragThresholdX || 10;
     this.el = opts.el;
+    this.canSwipe = opts.canSwipe;
   };
 
   SlideDrag.prototype = new DragOp();
 
   SlideDrag.prototype.start = function(e) {
     var content, buttons, offsetX, buttonsWidth;
+
+    if (!this.canSwipe()) {
+      return;
+    }
 
     if(e.target.classList.contains(ITEM_CONTENT_CLASS)) {
       content = e.target;
@@ -5181,10 +5962,12 @@ ionic.views.Scroll = ionic.views.View.inherit({
     if(!buttons) {
       return;
     }
+    buttons.classList.remove('invisible');
 
     buttonsWidth = buttons.offsetWidth;
 
     this._currentDrag = {
+      buttons: buttons,
       buttonsWidth: buttonsWidth,
       content: content,
       startOffsetX: offsetX
@@ -5208,7 +5991,10 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
     ionic.requestAnimationFrame(function() {
       lastDrag.content.style[ionic.CSS.TRANSITION] = '';
-      lastDrag.content.style[ionic.CSS.TRANSFORM] = 'translate3d(0, 0, 0)';
+      lastDrag.content.style[ionic.CSS.TRANSFORM] = '';
+      setTimeout(function() {
+        lastDrag.buttons && lastDrag.buttons.classList.add('invisible');
+      }, 250);
     });
   };
 
@@ -5275,6 +6061,10 @@ ionic.views.Scroll = ionic.views.View.inherit({
     ionic.requestAnimationFrame(function() {
       if(restingPoint === 0) {
         _this._currentDrag.content.style[ionic.CSS.TRANSFORM] = '';
+        var buttons = _this._currentDrag.buttons;
+        setTimeout(function() {
+          buttons && buttons.classList.add('invisible');
+        }, 250);
       } else {
         _this._currentDrag.content.style[ionic.CSS.TRANSFORM] = 'translate3d(' + restingPoint + 'px, 0, 0)';
       }
@@ -5293,6 +6083,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
   var ReorderDrag = function(opts) {
     this.dragThresholdY = opts.dragThresholdY || 0;
     this.onReorder = opts.onReorder;
+    this.listEl = opts.listEl;
     this.el = opts.el;
     this.scrollEl = opts.scrollEl;
     this.scrollView = opts.scrollView;
@@ -5301,33 +6092,24 @@ ionic.views.Scroll = ionic.views.View.inherit({
   ReorderDrag.prototype = new DragOp();
 
   ReorderDrag.prototype._moveElement = function(e) {
-    var y = (e.gesture.center.pageY - this._currentDrag.elementHeight/2);
+    var y = e.gesture.center.pageY -
+      this._currentDrag.elementHeight + 
+      this.scrollView.getValues().top -
+      this.listEl.offsetTop;
     this.el.style[ionic.CSS.TRANSFORM] = 'translate3d(0, '+y+'px, 0)';
   };
 
   ReorderDrag.prototype.start = function(e) {
     var content;
 
-
-    // Grab the starting Y point for the item
-    var offsetY = this.el.offsetTop;//parseFloat(this.el.style[ionic.CSS.TRANSFORM].replace('translate3d(', '').split(',')[1]) || 0;
-
     var startIndex = ionic.DomUtil.getChildIndex(this.el, this.el.nodeName.toLowerCase());
-    var elementHeight = this.el.offsetHeight;
+    var elementHeight = this.el.scrollHeight;
     var placeholder = this.el.cloneNode(true);
-
-    // If we have a scroll pane, move our draggable element outside of it
-    // We do this because when we drag our element down below the edge of the page
-    // and scroll the scroll-pane, if the element is *part* of the scroll-pane,
-    // it will scroll 'with' the scroll-pane's contents and change position.
-    var appendToElement = (this.scrollEl || this.el).parentNode;
 
     placeholder.classList.add(ITEM_PLACEHOLDER_CLASS);
 
     this.el.parentNode.insertBefore(placeholder, this.el);
     this.el.classList.add(ITEM_REORDERING_CLASS);
-
-    appendToElement.parentNode.appendChild(this.el);
 
     this._currentDrag = {
       elementHeight: elementHeight,
@@ -5386,8 +6168,12 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
   // When an item is dragged, we need to reorder any items for sorting purposes
   ReorderDrag.prototype._reorderItems = function() {
+    var self = this;
     var placeholder = this._currentDrag.placeholder;
-    var siblings = Array.prototype.slice.call(this._currentDrag.placeholder.parentNode.children);
+    var siblings = Array.prototype.slice.call(this._currentDrag.placeholder.parentNode.children)
+      .filter(function(el) {
+        return el !== self.el;
+      });
 
     var index = siblings.indexOf(this._currentDrag.placeholder);
     var topSibling = siblings[Math.max(0, index - 1)];
@@ -5439,7 +6225,9 @@ ionic.views.Scroll = ionic.views.View.inherit({
         onReorder: function(el, oldIndex, newIndex) {},
         virtualRemoveThreshold: -200,
         virtualAddThreshold: 200,
-        canSwipe: false
+        canSwipe: function() {
+          return true;
+        }
       }, opts);
 
       ionic.extend(this, opts);
@@ -5553,7 +6341,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
     // Return the list item from the given target
     _getItem: function(target) {
       while(target) {
-        if(target.classList.contains(ITEM_CLASS)) {
+        if(target.classList && target.classList.contains(ITEM_CLASS)) {
           return target;
         }
         target = target.parentNode;
@@ -5577,6 +6365,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
         if(item) {
           this._dragOp = new ReorderDrag({
+            listEl: this.el,
             el: item,
             scrollEl: this.scrollEl,
             scrollView: this.scrollView,
@@ -5595,7 +6384,7 @@ ionic.views.Scroll = ionic.views.View.inherit({
         // Make sure this is an item with buttons
         var item = this._getItem(e.target);
         if(item && item.querySelector('.item-options')) {
-          this._dragOp = new SlideDrag({ el: this.el });
+          this._dragOp = new SlideDrag({ el: this.el, canSwipe: this.canSwipe });
           this._dragOp.start(e);
           e.preventDefault();
         }
@@ -5629,10 +6418,6 @@ ionic.views.Scroll = ionic.views.View.inherit({
     _handleDrag: function(e) {
       var _this = this, content, buttons;
 
-      if (!this.canSwipe) {
-        return;
-      }
-
       if(Math.abs(e.gesture.deltaY) > 5) {
         this._didDragUpOrDown = true;
       }
@@ -5653,63 +6438,6 @@ ionic.views.Scroll = ionic.views.View.inherit({
       this._dragOp.drag(e);
     }
 
-  });
-
-})(ionic);
-
-(function(ionic) {
-'use strict';
-  /**
-   * Loading
-   *
-   * The Loading is an overlay that can be used to indicate
-   * activity while blocking user interaction.
-   */
-  ionic.views.Loading = ionic.views.View.inherit({
-    initialize: function(opts) {
-      var _this = this;
-
-      this.el = opts.el;
-
-      this.maxWidth = opts.maxWidth || 200;
-
-      this.showDelay = opts.showDelay || 0;
-
-      this._loadingBox = this.el.querySelector('.loading') || this.el;
-    },
-    show: function() {
-      var _this = this;
-
-      if(this._loadingBox) {
-        var lb = _this._loadingBox;
-
-        var width = Math.min(_this.maxWidth, Math.max(window.outerWidth - 40, lb.offsetWidth));
-
-        lb.style.width = width + 'px';
-
-        lb.style.marginLeft = (-lb.offsetWidth) / 2 + 'px';
-        lb.style.marginTop = (-lb.offsetHeight) / 2 + 'px';
-
-        // Wait 'showDelay' ms before showing the loading screen
-        this._showDelayTimeout = window.setTimeout(function() {
-          _this.el.classList.add('active');
-        }, _this.showDelay);
-      }
-    },
-    hide: function() {
-      // Force a reflow so the animation will actually run
-      this.el.offsetWidth;
-
-      // Prevent unnecessary 'show' after 'hide' has already been called
-      window.clearTimeout(this._showDelayTimeout);
-
-      this.el.classList.remove('active');
-    },
-    setContent: function(html) {
-      if (this._loadingBox) {
-        this._loadingBox.innerHTML = html || '';
-      }
-    }
   });
 
 })(ionic);
@@ -5750,60 +6478,6 @@ ionic.views.Scroll = ionic.views.View.inherit({
             inputs[i].blur && inputs[i].blur();
           }
         });
-      }
-    }
-  });
-
-})(ionic);
-
-(function(ionic) {
-'use strict';
-
-  ionic.views.NavBar = ionic.views.View.inherit({
-    initialize: function(opts) {
-      this.el = opts.el;
-
-      this._titleEl = this.el.querySelector('.title');
-
-      if(opts.hidden) {
-        this.hide();
-      }
-    },
-    hide: function() {
-      this.el.classList.add('hidden');
-    },
-    show: function() {
-      this.el.classList.remove('hidden');
-    },
-    shouldGoBack: function() {},
-
-    setTitle: function(title) {
-      if(!this._titleEl) {
-        return;
-      }
-      this._titleEl.innerHTML = title;
-    },
-
-    showBackButton: function(shouldShow) {
-      var _this = this;
-
-      if(!this._currentBackButton) {
-        var back = document.createElement('a');
-        back.className = 'button back';
-        back.innerHTML = 'Back';
-
-        this._currentBackButton = back;
-        this._currentBackButton.onclick = function(event) {
-          _this.shouldGoBack && _this.shouldGoBack();
-        };
-      }
-
-      if(shouldShow && !this._currentBackButton.parentNode) {
-        // Prepend the back button
-        this.el.insertBefore(this._currentBackButton, this.el.firstChild);
-      } else if(!shouldShow && this._currentBackButton.parentNode) {
-        // Remove the back button if it's there
-        this._currentBackButton.parentNode.removeChild(this._currentBackButton);
       }
     }
   });
@@ -5895,6 +6569,8 @@ ionic.views.Scroll = ionic.views.View.inherit({
 
 ionic.views.Slider = ionic.views.View.inherit({
   initialize: function (options) {
+    var slider = this;
+
     // utilities
     var noop = function() {}; // simple no operation function
     var offloadFn = function(fn) { setTimeout(fn || noop, 0) }; // offload a functions execution
@@ -6138,8 +6814,8 @@ ionic.views.Slider = ionic.views.View.inherit({
         switch (event.type) {
           case 'mousedown': this.start(event); break;
           case 'touchstart': this.start(event); break;
-          case 'touchmove': this.move(event); break;
-          case 'mousemove': this.move(event); break;
+          case 'touchmove': this.touchmove(event); break;
+          case 'mousemove': this.touchmove(event); break;
           case 'touchend': offloadFn(this.end(event)); break;
           case 'mouseup': offloadFn(this.end(event)); break;
           case 'webkitTransitionEnd':
@@ -6185,10 +6861,15 @@ ionic.views.Slider = ionic.views.View.inherit({
           document.addEventListener('mouseup', this, false);
         }
       },
-      move: function(event) {
+      touchmove: function(event) {
 
         // ensure swiping with one touch and not pinching
-        if ( event.touches.length > 1 || event.scale && event.scale !== 1) return
+        // ensure sliding is enabled
+        if (event.touches.length > 1 ||
+            event.scale && event.scale !== 1 ||
+            slider.slideIsDisabled) {
+          return;
+        }
 
         if (options.disableScroll) event.preventDefault();
 
@@ -6352,6 +7033,12 @@ ionic.views.Slider = ionic.views.View.inherit({
       setup();
     };
 
+    this.enableSlide = function(shouldEnable) {
+      if (arguments.length) {
+        this.slideIsDisabled = !shouldEnable;
+      }
+      return !this.slideIsDisabled;
+    },
     this.slide = function(to, speed) {
       // cancel slideshow
       stop();
@@ -6468,231 +7155,6 @@ ionic.views.Slider = ionic.views.View.inherit({
 });
 
 })(ionic);
-
-(function(ionic) {
-'use strict';
-
-ionic.views.TabBarItem = ionic.views.View.inherit({
-  initialize: function(el) {
-    this.el = el;
-
-    this._buildItem();
-  },
-
-  // Factory for creating an item from a given javascript object
-  create: function(itemData) {
-    var item = document.createElement('a');
-    item.className = 'tab-item';
-
-    // If there is an icon, add the icon element
-    if(itemData.icon) {
-      var icon = document.createElement('i');
-      icon.className = itemData.icon;
-      item.appendChild(icon);
-    }
-
-    // If there is a badge, add the badge element
-    if(itemData.badge) {
-      var badge = document.createElement('i');
-      badge.className = 'badge';
-      badge.innerHTML = itemData.badge;
-      item.appendChild(badge);
-      item.className = 'tab-item has-badge';
-    }
-
-    item.appendChild(document.createTextNode(itemData.title));
-
-    return new ionic.views.TabBarItem(item);
-  },
-
-  _buildItem: function() {
-    var _this = this, child, children = Array.prototype.slice.call(this.el.children);
-
-    for(var i = 0, j = children.length; i < j; i++) {
-      child = children[i];
-
-      // Test if this is a "i" tag with icon in the class name
-      // TODO: This heuristic might not be sufficient
-      if(child.tagName.toLowerCase() == 'i' && /icon/.test(child.className)) {
-        this.icon = child.className;
-      }
-
-      // Test if this is a "i" tag with badge in the class name
-      // TODO: This heuristic might not be sufficient
-      if(child.tagName.toLowerCase() == 'i' && /badge/.test(child.className)) {
-        this.badge = child.textContent.trim();
-      }
-    }
-
-    this.title = '';
-    for(i = 0, j = this.el.childNodes.length; i < j; i++) {
-      child = this.el.childNodes[i];
-
-      if (child.nodeName === "#text") {
-        this.title += child.nodeValue.trim();
-      }
-    }
-
-    this._tapHandler = function(e) {
-      _this.onTap && _this.onTap(e);
-    };
-
-    ionic.on('tap', this._tapHandler, this.el);
-  },
-  onTap: function(e) {
-  },
-
-  // Remove the event listeners from this object
-  destroy: function() {
-    ionic.off('tap', this._tapHandler, this.el);
-  },
-
-  getIcon: function() {
-    return this.icon;
-  },
-
-  getTitle: function() {
-    return this.title;
-  },
-
-  getBadge: function() {
-    return this.badge;
-  },
-
-  setSelected: function(isSelected) {
-    this.isSelected = isSelected;
-    if(isSelected) {
-      this.el.classList.add('active');
-    } else {
-      this.el.classList.remove('active');
-    }
-  }
-});
-
-ionic.views.TabBar = ionic.views.View.inherit({
-  initialize: function(opts) {
-    this.el = opts.el;
-     
-    this.items = [];
-
-    this._buildItems();
-  },
-  // get all the items for the TabBar
-  getItems: function() {
-    return this.items;
-  },
-
-  // Add an item to the tab bar
-  addItem: function(item) {
-    // Create a new TabItem
-    var tabItem = ionic.views.TabBarItem.prototype.create(item);
-
-    this.appendItemElement(tabItem);
-
-    this.items.push(tabItem);
-    this._bindEventsOnItem(tabItem);
-  },
-
-  appendItemElement: function(item) {
-    if(!this.el) {
-      return;
-    }
-    this.el.appendChild(item.el);
-  },
-
-  // Remove an item from the tab bar
-  removeItem: function(index) {
-    var item = this.items[index];
-    if(!item) {
-      return;
-    }
-    item.onTap = undefined;
-    item.destroy();
-  },
-
-  _bindEventsOnItem: function(item) {
-    var _this = this;
-
-    if(!this._itemTapHandler) {
-      this._itemTapHandler = function(e) {
-        //_this.selectItem(this);
-        _this.trySelectItem(this);
-      };
-    }
-    item.onTap = this._itemTapHandler;
-  },
-
-  // Get the currently selected item
-  getSelectedItem: function() {
-    return this.selectedItem;
-  },
-
-  // Set the currently selected item by index
-  setSelectedItem: function(index) {
-    this.selectedItem = this.items[index];
-
-    // Deselect all
-    for(var i = 0, j = this.items.length; i < j; i += 1) {
-      this.items[i].setSelected(false);
-    }
-
-    // Select the new item
-    if(this.selectedItem) {
-      this.selectedItem.setSelected(true);
-      //this.onTabSelected && this.onTabSelected(this.selectedItem, index);
-    }
-  },
-
-  // Select the given item assuming we can find it in our
-  // item list.
-  selectItem: function(item) {
-    for(var i = 0, j = this.items.length; i < j; i += 1) {
-      if(this.items[i] == item) {
-        this.setSelectedItem(i);
-        return;
-      }
-    }
-  },
-
-  // Try to select a given item. This triggers an event such
-  // that the view controller managing this tab bar can decide
-  // whether to select the item or cancel it.
-  trySelectItem: function(item) {
-    for(var i = 0, j = this.items.length; i < j; i += 1) {
-      if(this.items[i] == item) {
-        this.tryTabSelect && this.tryTabSelect(i);
-        return;
-      }
-    }
-  },
-
-  // Build the initial items list from the given DOM node.
-  _buildItems: function() {
-
-    var item, items = Array.prototype.slice.call(this.el.children);
-
-    for(var i = 0, j = items.length; i < j; i += 1) {
-      item =  new ionic.views.TabBarItem(items[i]);
-      this.items[i] = item;
-      this._bindEventsOnItem(item);
-    }
-  
-    if(this.items.length > 0) {
-      this.selectedItem = this.items[0];
-    }
-
-  },
-
-  // Destroy this tab bar
-  destroy: function() {
-    for(var i = 0, j = this.items.length; i < j; i += 1) {
-      this.items[i].destroy();
-    }
-    this.items.length = 0;
-  }
-});
-
-})(window.ionic);
 
 (function(ionic) {
 'use strict';
@@ -6860,159 +7322,6 @@ ionic.views.TabBar = ionic.views.View.inherit({
 (function(ionic) {
 'use strict';
 
-/**
- * The NavController makes it easy to have a stack
- * of views or screens that can be pushed and popped
- * for a dynamic navigation flow. This API is modelled
- * off of the UINavigationController in iOS.
- *
- * The NavController can drive a nav bar to show a back button
- * if the stack can be poppped to go back to the last view, and
- * it will handle updating the title of the nav bar and processing animations.
- */
-ionic.controllers.NavController = ionic.controllers.ViewController.inherit({
-  initialize: function(opts) {
-    var _this = this;
-
-    this.navBar = opts.navBar;
-    this.content = opts.content;
-    this.controllers = opts.controllers || [];
-
-    this._updateNavBar();
-
-    // TODO: Is this the best way?
-    this.navBar.shouldGoBack = function() {
-      _this.pop();
-    };
-  },
-
-  /**
-   * @return {array} the array of controllers on the stack.
-   */
-  getControllers: function() {
-    return this.controllers;
-  },
-
-  /**
-   * @return {object} the controller at the top of the stack.
-   */
-  getTopController: function() {
-    return this.controllers[this.controllers.length-1];
-  },
-
-  /**
-   * Push a new controller onto the navigation stack. The new controller
-   * will automatically become the new visible view.
-   *
-   * @param {object} controller the controller to push on the stack.
-   */
-  push: function(controller) {
-    var last = this.controllers[this.controllers.length - 1];
-
-    this.controllers.push(controller);
-
-    // Indicate we are switching controllers
-    var shouldSwitch = this.switchingController && this.switchingController(controller) || true;
-
-    // Return if navigation cancelled
-    if(shouldSwitch === false)
-      return;
-
-    // Actually switch the active controllers
-    if(last) {
-      last.isVisible = false;
-      last.visibilityChanged && last.visibilityChanged('push');
-    }
-
-    // Grab the top controller on the stack
-    var next = this.controllers[this.controllers.length - 1];
-
-    next.isVisible = true;
-    // Trigger visibility change, but send 'first' if this is the first page
-    next.visibilityChanged && next.visibilityChanged(last ? 'push' : 'first');
-
-    this._updateNavBar();
-
-    return controller;
-  },
-
-  /**
-   * Pop the top controller off the stack, and show the last one. This is the
-   * "back" operation.
-   *
-   * @return {object} the last popped controller
-   */
-  pop: function() {
-    var next, last;
-
-    // Make sure we keep one on the stack at all times
-    if(this.controllers.length < 2) {
-      return;
-    }
-
-    // Grab the controller behind the top one on the stack
-    last = this.controllers.pop();
-    if(last) {
-      last.isVisible = false;
-      last.visibilityChanged && last.visibilityChanged('pop');
-    }
-    
-    // Remove the old one
-    //last && last.detach();
-
-    next = this.controllers[this.controllers.length - 1];
-
-    // TODO: No DOM stuff here
-    //this.content.el.appendChild(next.el);
-    next.isVisible = true;
-    next.visibilityChanged && next.visibilityChanged('pop');
-
-    // Switch to it (TODO: Animate or such things here)
-
-    this._updateNavBar();
-
-    return last;
-  },
-
-  /**
-   * Show the NavBar (if any)
-   */
-  showNavBar: function() {
-    if(this.navBar) {
-      this.navBar.show();
-    }
-  },
-
-  /**
-   * Hide the NavBar (if any)
-   */
-  hideNavBar: function() {
-    if(this.navBar) {
-      this.navBar.hide();
-    }
-  },
-
-  // Update the nav bar after a push or pop
-  _updateNavBar: function() {
-    if(!this.getTopController() || !this.navBar) {
-      return;
-    }
-
-    this.navBar.setTitle(this.getTopController().title);
-
-    if(this.controllers.length > 1) {
-      this.navBar.showBackButton(true);
-    } else {
-      this.navBar.showBackButton(false);
-    }
-  }
-});
-
-})(window.ionic);
-
-(function(ionic) {
-'use strict';
-
   /**
    * The SideMenuController is a controller with a left and/or right menu that
    * can be slid out and toggled. Seen on many an app.
@@ -7129,7 +7438,7 @@ ionic.controllers.NavController = ionic.controllers.ViewController.inherit({
     },
 
     isOpen: function() {
-      return this.getOpenRatio() == 1;
+      return this.getOpenAmount() !== 0;
     },
 
     /**
@@ -7317,155 +7626,5052 @@ ionic.controllers.NavController = ionic.controllers.ViewController.inherit({
 
 })(ionic);
 
+(function(window) {
+  var time = Date.now || function() {
+    return +new Date();
+  };
+  var desiredFrames = 60;
+  var millisecondsPerSecond = 1000;
+  var running = {};
+  var counter = 1;
+
+  // Namespace
+  ionic.Animation = {};
+
+  /**
+   * The main animation system manager. Treated as a singleton.
+   */
+  ionic.Animation = {
+    create: function(opts) {
+      return new ionic.Animation.Animation(opts);
+    },
+
+    animationStarted: function(instance) {
+      var id = counter++;
+
+      // Compacting running db automatically every few new animations
+      if (id % 20 === 0) {
+        var newRunning = {};
+        for (var usedId in running) {
+          newRunning[usedId] = true;
+        }
+        running = newRunning;
+      }
+
+      // Mark as running
+      running[id] = true;
+
+      instance.isRunning = true;
+      instance._animationId = id;
+
+      // Return unique animation ID
+      return id;
+    },
+
+    animationStopped: function(instance) {
+      instance.isRunning = false;
+    }
+
+    /* TODO: Move animation set management here instead of instance
+    anims: [],
+    add: function(animation) {
+      this.anims.push(animation);
+    },
+    remove: function(animation) {
+      var i, j;
+      for(i = 0, j = this.anims.length; i < j; i++) {
+        if(this.anims[i] === animation) {
+          return this.anims.splice(i, 1);
+        }
+      }
+    },
+    clear: function(shouldStop) {
+      while(this.anims.length) {
+        var anim = this.anims.pop();
+        if(shouldStop === true) {
+          anim.stop();
+        }
+      }
+    },
+    */
+
+    /**
+     * Stops the given animation.
+     *
+     * @param id {Integer} Unique animation ID
+     * @return {Boolean} Whether the animation was stopped (aka, was running before)
+     * TODO: Requires above fix
+    stop: function(id) {
+      var cleared = running[id] != null;
+      if (cleared) {
+        running[id] = null;
+      }
+
+      return cleared;
+    },
+     */
+
+
+    /**
+     * Whether the given animation is still running.
+     *
+     * @param id {Integer} Unique animation ID
+     * @return {Boolean} Whether the animation is still running
+    isRunning: function(id) {
+      return running[id] != null;
+    },
+     */
+
+  };
+
+  /**
+   * Animation instance
+   */
+  ionic.Animation.Animation = function(opts) {
+    ionic.extend(this, opts);
+
+    if(opts.useSlowAnimations) {
+      void 0;
+      this.delay *= 3;
+      this.duration *= 3;
+    }
+  };
+
+  ionic.Animation.Animation.prototype = {
+    el: null,
+    curve: 'linear',
+    duration: 500,
+    delay: 0,
+    repeat: -1,
+    reverse: false,
+    autoReverse: false,
+
+    step: function(percent) {},
+
+    stop: function() {
+      this.isRunning = false;
+      this.shouldEnd = true;
+    },
+    play: function() {
+      this.isPaused = false;
+      this.start();
+    },
+    pause: function() {
+      this.isPaused = true;
+    },
+    _saveState: function(percent, iteration, reverse) {
+      this._pauseState = {
+        percent: percent,
+        iteration: iteration,
+        reverse: reverse
+      }
+    },
+    restart: function() {
+    },
+
+    start: function() {
+      var self = this;
+
+      var tf;
+
+      void 0;
+
+
+      // Grab the timing function
+      if(typeof this.curve === 'string') {
+        tf = ionic.Animation.TimingFn[this.curve] || ionic.Animation.TimingFn['linear'];
+      } else {
+        tf = this.curve;
+      }
+
+      // Get back a timing function for the given duration (used for precision)
+      tf = tf(this.duration);
+
+      // Set up the initial animation state
+      var animState = {
+        startPercent: this.reverse === true ? 1 : 0,
+        endPercent: this.reverse === true ? 0 : 1,
+        duration: this.duration,
+        easingMethod: tf,
+        delay: this.delay,
+        reverse: this.reverse,
+        repeat: this.repeat,
+        autoReverse: this.autoReverse
+      }
+
+
+      if(this._pauseState) {
+        // We were paused, so update the fields
+        ionic.extend(animState, this._pauseState);
+        this._pauseState = null;
+      }
+
+      ionic.Animation.animationStarted(this);
+
+      return this._run(function(percent, now, render) {
+        if(render) {
+          self.step(percent);
+        }
+      }, function(droppedFrames, finishedAnimation) {
+        ionic.Animation.animationStopped(self);
+        void 0;
+      }, animState);
+    },
+
+    /**
+     * Start the animation.
+     *
+     * @param stepCallback {Function} Pointer to function which is executed on every step.
+    *   Signature of the method should be `function(percent, now, virtual) { return continueWithAnimation; }`
+     * @param completedCallback {Function}
+     *   Signature of the method should be `function(droppedFrames, finishedAnimation) {}`
+     * @param duration {Integer} Milliseconds to run the animation
+     * @param easingMethod {Function} Pointer to easing function
+     *   Signature of the method should be `function(percent) { return modifiedValue; }`
+     * @return {Integer} Identifier of animation. Can be used to stop it any time.
+     */
+    _run: function(stepCallback, completedCallback, state) {
+
+      var self = this;
+      var start = time();
+      var lastFrame = start;
+      var startTime = start + state.delay;
+      var percent = state.startPercent;
+      var startPercent = state.startPercent;
+      var endPercent = state.endPercent;
+      var autoReverse = state.autoReverse;
+      var delay = state.delay;
+      var duration = state.duration;
+      var easingMethod = state.easingMethod;
+      var repeat = state.repeat;
+      var reverse = state.reverse;
+
+      var dropCounter = 0;
+      var iteration = 0;
+
+      var perhapsAutoreverse = function() {
+        // Check if we hit the end and should auto reverse
+        if(percent === endPercent && autoReverse) {
+          // Flip the start and end values
+          var sp = endPercent;
+          reverse = !reverse;
+          endPercent = startPercent;
+          startPercent = sp;
+
+          if(repeat === 0) {
+            autoReverse = false;
+          }
+        } else {
+          // Otherwise, just start over
+          percent = startPercent;
+        }
+        // Start fresh either way
+        start = time();
+        ionic.requestAnimationFrame(step);
+      }
+
+
+      // This is the internal step method which is called every few milliseconds
+      var step = function(virtual) {
+
+        // Normalize virtual value
+        var render = virtual !== true;
+
+        // Get current time
+        var now = time();
+        var diff = now - start;
+
+        // Verification is executed before next animation step
+        if(self.isPaused) {
+          self._saveState(percent, iteration, reverse);
+          return;
+        }
+
+        if (!self.isRunning) {// || (verifyCallback && !verifyCallback(id))) {
+
+          completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), self._animationId, false);
+          return;
+
+        }
+
+
+        // For the current rendering to apply let's update omitted steps in memory.
+        // This is important to bring internal state variables up-to-date with progress in time.
+        if (render) {
+
+          var droppedFrames = Math.round((now - lastFrame) / (millisecondsPerSecond / desiredFrames)) - 1;
+          for (var j = 0; j < Math.min(droppedFrames, 4); j++) {
+            step(true);
+            dropCounter++;
+          }
+
+        }
+
+        // Compute percent value
+        if (diff > delay && duration) {
+          percent = (diff - delay) / duration;
+          if(reverse === true) {
+            percent = 1 - percent;
+            if (percent < 0) {
+              percent = 0;
+            }
+          } else {
+            if (percent > 1) {
+              percent = 1;
+            }
+          }
+        }
+
+        // Execute step callback, then...
+        var value = easingMethod ? easingMethod(percent) : percent;
+        if ((stepCallback(value, now, render) === false || percent === endPercent) && render) {
+          if(repeat === -1) {
+            perhapsAutoreverse();
+          } else if(iteration < repeat) {
+            // Track iterations
+            iteration++;
+            perhapsAutoreverse();
+          } else if(repeat === 0 && autoReverse) {
+            perhapsAutoreverse();
+          } else {
+            completedCallback && completedCallback(desiredFrames - (dropCounter / ((now - start) / millisecondsPerSecond)), self._animationId, percent === endPercent || duration == null);
+          }
+        } else if (render) {
+          lastFrame = now;
+          ionic.requestAnimationFrame(step);
+        }
+      };
+
+
+      // Init first step
+      ionic.requestAnimationFrame(step);
+
+    }
+  };
+
+
+})(window);
+
+/*
+ * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ */
 (function(ionic) {
-'use strict';
+
+  var bezierCoord = function (x,y) {
+    if(!x) x=0;
+    if(!y) y=0;
+    return {x: x, y: y};
+  };
+
+  function B1(t) { return t*t*t; }
+  function B2(t) { return 3*t*t*(1-t); }
+  function B3(t) { return 3*t*(1-t)*(1-t); }
+  function B4(t) { return (1-t)*(1-t)*(1-t); }
+
+  ionic.Animation = ionic.Animation || {}
+
+ 
+  /**
+   * JavaScript port of Webkit implementation of CSS cubic-bezier(p1x.p1y,p2x,p2y) by http://mck.me
+   * http://svn.webkit.org/repository/webkit/trunk/Source/WebCore/platform/graphics/UnitBezier.h
+   */
+  ionic.Animation.Bezier = (function(){
+    'use strict';
+   
+    /**
+     * Duration value to use when one is not specified (400ms is a common value).
+     * @const
+     * @type {number}
+     */
+    var DEFAULT_DURATION = 400;//ms
+   
+    /**
+     * The epsilon value we pass to UnitBezier::solve given that the animation is going to run over |dur| seconds.
+     * The longer the animation, the more precision we need in the timing function result to avoid ugly discontinuities.
+     * http://svn.webkit.org/repository/webkit/trunk/Source/WebCore/page/animation/AnimationBase.cpp
+     */
+    var solveEpsilon = function(duration) {
+      return 1.0 / (200.0 * duration);
+    };
+   
+    /**
+     * Defines a cubic-bezier curve given the middle two control points.
+     * NOTE: first and last control points are implicitly (0,0) and (1,1).
+     * @param p1x {number} X component of control point 1
+     * @param p1y {number} Y component of control point 1
+     * @param p2x {number} X component of control point 2
+     * @param p2y {number} Y component of control point 2
+     */
+    var unitBezier = function(p1x, p1y, p2x, p2y) {
+    
+      // private members --------------------------------------------
+   
+      // Calculate the polynomial coefficients, implicit first and last control points are (0,0) and (1,1).
+   
+      /**
+       * X component of Bezier coefficient C
+       * @const
+       * @type {number}
+       */
+      var cx = 3.0 * p1x;
+   
+      /**
+       * X component of Bezier coefficient B
+       * @const
+       * @type {number}
+       */
+      var bx = 3.0 * (p2x - p1x) - cx;
+   
+      /**
+       * X component of Bezier coefficient A
+       * @const
+       * @type {number}
+       */
+      var ax = 1.0 - cx -bx;
+   
+      /**
+       * Y component of Bezier coefficient C
+       * @const
+       * @type {number}
+       */
+      var cy = 3.0 * p1y;
+   
+      /**
+       * Y component of Bezier coefficient B
+       * @const
+       * @type {number}
+       */
+      var by = 3.0 * (p2y - p1y) - cy;
+   
+      /**
+       * Y component of Bezier coefficient A
+       * @const
+       * @type {number}
+       */
+      var ay = 1.0 - cy - by;
+   
+      /**
+       * @param t {number} parametric timing value
+       * @return {number}
+       */
+      var sampleCurveX = function(t) {
+        // `ax t^3 + bx t^2 + cx t' expanded using Horner's rule.
+        return ((ax * t + bx) * t + cx) * t;
+      };
+   
+      /**
+       * @param t {number} parametric timing value
+       * @return {number}
+       */
+      var sampleCurveY = function(t) {
+        return ((ay * t + by) * t + cy) * t;
+      };
+   
+      /**
+       * @param t {number} parametric timing value
+       * @return {number}
+       */
+      var sampleCurveDerivativeX = function(t) {
+        return (3.0 * ax * t + 2.0 * bx) * t + cx;
+      };
+   
+      /**
+       * Given an x value, find a parametric value it came from.
+       * @param x {number} value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param epsilon {number} accuracy limit of t for the given x
+       * @return {number} the t value corresponding to x
+       */
+      var solveCurveX = function(x, epsilon) {
+        var t0;
+        var t1;
+        var t2;
+        var x2;
+        var d2;
+        var i;
+   
+        // First try a few iterations of Newton's method -- normally very fast.
+        for (t2 = x, i = 0; i < 8; i++) {
+          x2 = sampleCurveX(t2) - x;
+          if (Math.abs (x2) < epsilon) {
+            return t2;
+          }
+          d2 = sampleCurveDerivativeX(t2);
+          if (Math.abs(d2) < 1e-6) {
+            break;
+          }
+          t2 = t2 - x2 / d2;
+        }
+   
+        // Fall back to the bisection method for reliability.
+        t0 = 0.0;
+        t1 = 1.0;
+        t2 = x;
+   
+        if (t2 < t0) {
+          return t0;
+        }
+        if (t2 > t1) {
+          return t1;
+        }
+   
+        while (t0 < t1) {
+          x2 = sampleCurveX(t2);
+          if (Math.abs(x2 - x) < epsilon) {
+            return t2;
+          }
+          if (x > x2) {
+            t0 = t2;
+          } else {
+            t1 = t2;
+          }
+          t2 = (t1 - t0) * 0.5 + t0;
+        }
+   
+        // Failure.
+        return t2;
+      };
+   
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param epsilon {number} the accuracy of t for the given x
+       * @return {number} the y value along the bezier curve
+       */
+      var solve = function(x, epsilon) {
+        return sampleCurveY(solveCurveX(x, epsilon));
+      };
+   
+      // public interface --------------------------------------------
+   
+      /**
+       * Find the y of the cubic-bezier for a given x with accuracy determined by the animation duration.
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      return function(x, duration) {
+        return solve(x, solveEpsilon(+duration || DEFAULT_DURATION));
+      };
+    };
+   
+    // http://www.w3.org/TR/css3-transitions/#transition-timing-function
+    return {
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      linear: unitBezier(0.0, 0.0, 1.0, 1.0),
+   
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      ease: unitBezier(0.25, 0.1, 0.25, 1.0),
+   
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      easeIn: unitBezier(0.42, 0, 1.0, 1.0),
+   
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      easeOut: unitBezier(0, 0, 0.58, 1.0),
+   
+      /**
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      easeInOut: unitBezier(0.42, 0, 0.58, 1.0),
+   
+      /**
+       * @param p1x {number} X component of control point 1
+       * @param p1y {number} Y component of control point 1
+       * @param p2x {number} X component of control point 2
+       * @param p2y {number} Y component of control point 2
+       * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+       * @param duration {number} the duration of the animation in milliseconds
+       * @return {number} the y value along the bezier curve
+       */
+      cubicBezier: function(p1x, p1y, p2x, p2y, x, duration) {
+        return unitBezier(p1x, p1y, p2x, p2y)(x, duration);
+      }
+    };
+  })();
 
 /**
- * The TabBarController handles a set of view controllers powered by a tab strip
- * at the bottom (or possibly top) of a screen.
- *
- * The API here is somewhat modelled off of UITabController in the sense that the
- * controllers actually define what the tab will look like (title, icon, etc.).
- *
- * Tabs shouldn't be interacted with through your own code. Instead, use the controller
- * methods which will power the tab bar.
+ * Various fast approximations and alternates to cubic-bezier easing functions.
+ * http://www.w3.org/TR/css3-transitions/#transition-timing-function
  */
-ionic.controllers.TabBarController = ionic.controllers.ViewController.inherit({
-  initialize: function(options) {
-    this.tabBar = options.tabBar;
+var Easing = (function(){
+	'use strict';
+ 
+	/**
+	 * @const
+	 */
+	var EASE_IN_OUT_CONST = 0.5 * Math.pow(0.5, 1.925);
+ 
+	return {
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		linear: function(x) {
+			return x;
+		},
+ 
+//		/**
+//		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+//		 * @return {number} the y value along the curve
+//		 */
+//		ease: function(x) {
+//			// TODO: find fast approximations
+//			return x;
+//		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInApprox: function(x) {
+			// very close approximation to cubic-bezier(0.42, 0, 1.0, 1.0)
+			return Math.pow(x, 1.685);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInQuadratic: function(x) {
+			return (x * x);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInCubic: function(x) {
+			return (x * x * x);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeOutApprox: function(x) {
+			// very close approximation to cubic-bezier(0, 0, 0.58, 1.0)
+			return 1 - Math.pow(1-x, 1.685);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeOutQuadratic: function(x) {
+			x -= 1;
+			return 1 - (x * x);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeOutCubic: function(x) {
+			x -= 1;
+			return 1 + (x * x * x);
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInOutApprox: function(x) {
+			// very close approximation to cubic-bezier(0.42, 0, 0.58, 1.0)
+			if (x < 0.5) {
+				return EASE_IN_OUT_CONST * Math.pow(x, 1.925);
+	
+			} else {
+				return 1 - EASE_IN_OUT_CONST * Math.pow(1-x, 1.925);
+			}
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInOutQuadratic: function(x) {
+			if (x < 0.5) {
+				return (2 * x * x);
+	
+			} else {
+				x -= 1;
+				return 1 - (2 * x * x);
+			}
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInOutCubic: function(x) {
+			if (x < 0.5) {
+				return (4 * x * x * x);
+	
+			} else {
+				x -= 1;
+				return 1 + (4 * x * x * x);
+			}
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInOutQuartic: function(x) {
+			if (x < 0.5) {
+				return (8 * x * x * x * x);
+	
+			} else {
+				x -= 1;
+				return 1 + (8 * x * x * x * x);
+			}
+		},
+ 
+		/**
+		 * @param x {number} the value of x along the curve, 0.0 <= x <= 1.0
+		 * @return {number} the y value along the curve
+		 */
+		easeInOutQuintic: function(x) {
+			if (x < 0.5) {
+				return (16 * x * x * x * x * x);
+	
+			} else {
+				x -= 1;
+				return 1 + (16 * x * x * x * x * x);
+			}
+		}
+	};
+})();
+})(ionic);
 
-    this._bindEvents();
+/**
+ * @fileoverview gl-matrix - High performance matrix and vector operations
+ * @author Brandon Jones
+ * @author Colin MacKenzie IV
+ * @version 2.2.1
+ */
 
-    this.controllers = [];
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
 
-    var controllers = options.controllers || [];
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
 
-    for(var i = 0; i < controllers.length; i++) {
-      this.addController(controllers[i]);
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+
+(function(_global) {
+  "use strict";
+
+  var shim = {};
+  if (typeof(exports) === 'undefined') {
+    if(typeof define == 'function' && typeof define.amd == 'object' && define.amd) {
+      shim.exports = {};
+      define(function() {
+        return shim.exports;
+      });
+    } else {
+      // gl-matrix lives in a browser, define its namespaces in global
+      shim.exports = typeof(window) !== 'undefined' ? window : _global;
+    }
+  }
+  else {
+    // gl-matrix lives in commonjs, define its namespaces in exports
+    shim.exports = exports;
+  }
+
+  (function(exports) {
+    /* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+
+if(!GLMAT_EPSILON) {
+    var GLMAT_EPSILON = 0.000001;
+}
+
+if(!GLMAT_ARRAY_TYPE) {
+    var GLMAT_ARRAY_TYPE = (typeof Float32Array !== 'undefined') ? Float32Array : Array;
+}
+
+if(!GLMAT_RANDOM) {
+    var GLMAT_RANDOM = Math.random;
+}
+
+/**
+ * @class Common utilities
+ * @name glMatrix
+ */
+var glMatrix = {};
+
+/**
+ * Sets the type of array used when creating new vectors and matricies
+ *
+ * @param {Type} type Array type, such as Float32Array or Array
+ */
+glMatrix.setMatrixArrayType = function(type) {
+    GLMAT_ARRAY_TYPE = type;
+}
+
+if(typeof(exports) !== 'undefined') {
+    exports.glMatrix = glMatrix;
+}
+
+var degree = Math.PI / 180;
+
+/**
+* Convert Degree To Radian
+*
+* @param {Number} Angle in Degrees
+*/
+glMatrix.toRadian = function(a){
+     return a * degree;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 2 Dimensional Vector
+ * @name vec2
+ */
+
+var vec2 = {};
+
+/**
+ * Creates a new, empty vec2
+ *
+ * @returns {vec2} a new 2D vector
+ */
+vec2.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(2);
+    out[0] = 0;
+    out[1] = 0;
+    return out;
+};
+
+/**
+ * Creates a new vec2 initialized with values from an existing vector
+ *
+ * @param {vec2} a vector to clone
+ * @returns {vec2} a new 2D vector
+ */
+vec2.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(2);
+    out[0] = a[0];
+    out[1] = a[1];
+    return out;
+};
+
+/**
+ * Creates a new vec2 initialized with the given values
+ *
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @returns {vec2} a new 2D vector
+ */
+vec2.fromValues = function(x, y) {
+    var out = new GLMAT_ARRAY_TYPE(2);
+    out[0] = x;
+    out[1] = y;
+    return out;
+};
+
+/**
+ * Copy the values from one vec2 to another
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the source vector
+ * @returns {vec2} out
+ */
+vec2.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    return out;
+};
+
+/**
+ * Set the components of a vec2 to the given values
+ *
+ * @param {vec2} out the receiving vector
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @returns {vec2} out
+ */
+vec2.set = function(out, x, y) {
+    out[0] = x;
+    out[1] = y;
+    return out;
+};
+
+/**
+ * Adds two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.add = function(out, a, b) {
+    out[0] = a[0] + b[0];
+    out[1] = a[1] + b[1];
+    return out;
+};
+
+/**
+ * Subtracts vector b from vector a
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.subtract = function(out, a, b) {
+    out[0] = a[0] - b[0];
+    out[1] = a[1] - b[1];
+    return out;
+};
+
+/**
+ * Alias for {@link vec2.subtract}
+ * @function
+ */
+vec2.sub = vec2.subtract;
+
+/**
+ * Multiplies two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.multiply = function(out, a, b) {
+    out[0] = a[0] * b[0];
+    out[1] = a[1] * b[1];
+    return out;
+};
+
+/**
+ * Alias for {@link vec2.multiply}
+ * @function
+ */
+vec2.mul = vec2.multiply;
+
+/**
+ * Divides two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.divide = function(out, a, b) {
+    out[0] = a[0] / b[0];
+    out[1] = a[1] / b[1];
+    return out;
+};
+
+/**
+ * Alias for {@link vec2.divide}
+ * @function
+ */
+vec2.div = vec2.divide;
+
+/**
+ * Returns the minimum of two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.min = function(out, a, b) {
+    out[0] = Math.min(a[0], b[0]);
+    out[1] = Math.min(a[1], b[1]);
+    return out;
+};
+
+/**
+ * Returns the maximum of two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec2} out
+ */
+vec2.max = function(out, a, b) {
+    out[0] = Math.max(a[0], b[0]);
+    out[1] = Math.max(a[1], b[1]);
+    return out;
+};
+
+/**
+ * Scales a vec2 by a scalar number
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the vector to scale
+ * @param {Number} b amount to scale the vector by
+ * @returns {vec2} out
+ */
+vec2.scale = function(out, a, b) {
+    out[0] = a[0] * b;
+    out[1] = a[1] * b;
+    return out;
+};
+
+/**
+ * Adds two vec2's after scaling the second operand by a scalar value
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @param {Number} scale the amount to scale b by before adding
+ * @returns {vec2} out
+ */
+vec2.scaleAndAdd = function(out, a, b, scale) {
+    out[0] = a[0] + (b[0] * scale);
+    out[1] = a[1] + (b[1] * scale);
+    return out;
+};
+
+/**
+ * Calculates the euclidian distance between two vec2's
+ *
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {Number} distance between a and b
+ */
+vec2.distance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1];
+    return Math.sqrt(x*x + y*y);
+};
+
+/**
+ * Alias for {@link vec2.distance}
+ * @function
+ */
+vec2.dist = vec2.distance;
+
+/**
+ * Calculates the squared euclidian distance between two vec2's
+ *
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {Number} squared distance between a and b
+ */
+vec2.squaredDistance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1];
+    return x*x + y*y;
+};
+
+/**
+ * Alias for {@link vec2.squaredDistance}
+ * @function
+ */
+vec2.sqrDist = vec2.squaredDistance;
+
+/**
+ * Calculates the length of a vec2
+ *
+ * @param {vec2} a vector to calculate length of
+ * @returns {Number} length of a
+ */
+vec2.length = function (a) {
+    var x = a[0],
+        y = a[1];
+    return Math.sqrt(x*x + y*y);
+};
+
+/**
+ * Alias for {@link vec2.length}
+ * @function
+ */
+vec2.len = vec2.length;
+
+/**
+ * Calculates the squared length of a vec2
+ *
+ * @param {vec2} a vector to calculate squared length of
+ * @returns {Number} squared length of a
+ */
+vec2.squaredLength = function (a) {
+    var x = a[0],
+        y = a[1];
+    return x*x + y*y;
+};
+
+/**
+ * Alias for {@link vec2.squaredLength}
+ * @function
+ */
+vec2.sqrLen = vec2.squaredLength;
+
+/**
+ * Negates the components of a vec2
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a vector to negate
+ * @returns {vec2} out
+ */
+vec2.negate = function(out, a) {
+    out[0] = -a[0];
+    out[1] = -a[1];
+    return out;
+};
+
+/**
+ * Normalize a vec2
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a vector to normalize
+ * @returns {vec2} out
+ */
+vec2.normalize = function(out, a) {
+    var x = a[0],
+        y = a[1];
+    var len = x*x + y*y;
+    if (len > 0) {
+        //TODO: evaluate use of glm_invsqrt here?
+        len = 1 / Math.sqrt(len);
+        out[0] = a[0] * len;
+        out[1] = a[1] * len;
+    }
+    return out;
+};
+
+/**
+ * Calculates the dot product of two vec2's
+ *
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {Number} dot product of a and b
+ */
+vec2.dot = function (a, b) {
+    return a[0] * b[0] + a[1] * b[1];
+};
+
+/**
+ * Computes the cross product of two vec2's
+ * Note that the cross product must by definition produce a 3D vector
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @returns {vec3} out
+ */
+vec2.cross = function(out, a, b) {
+    var z = a[0] * b[1] - a[1] * b[0];
+    out[0] = out[1] = 0;
+    out[2] = z;
+    return out;
+};
+
+/**
+ * Performs a linear interpolation between two vec2's
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the first operand
+ * @param {vec2} b the second operand
+ * @param {Number} t interpolation amount between the two inputs
+ * @returns {vec2} out
+ */
+vec2.lerp = function (out, a, b, t) {
+    var ax = a[0],
+        ay = a[1];
+    out[0] = ax + t * (b[0] - ax);
+    out[1] = ay + t * (b[1] - ay);
+    return out;
+};
+
+/**
+ * Generates a random vector with the given scale
+ *
+ * @param {vec2} out the receiving vector
+ * @param {Number} [scale] Length of the resulting vector. If ommitted, a unit vector will be returned
+ * @returns {vec2} out
+ */
+vec2.random = function (out, scale) {
+    scale = scale || 1.0;
+    var r = GLMAT_RANDOM() * 2.0 * Math.PI;
+    out[0] = Math.cos(r) * scale;
+    out[1] = Math.sin(r) * scale;
+    return out;
+};
+
+/**
+ * Transforms the vec2 with a mat2
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the vector to transform
+ * @param {mat2} m matrix to transform with
+ * @returns {vec2} out
+ */
+vec2.transformMat2 = function(out, a, m) {
+    var x = a[0],
+        y = a[1];
+    out[0] = m[0] * x + m[2] * y;
+    out[1] = m[1] * x + m[3] * y;
+    return out;
+};
+
+/**
+ * Transforms the vec2 with a mat2d
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the vector to transform
+ * @param {mat2d} m matrix to transform with
+ * @returns {vec2} out
+ */
+vec2.transformMat2d = function(out, a, m) {
+    var x = a[0],
+        y = a[1];
+    out[0] = m[0] * x + m[2] * y + m[4];
+    out[1] = m[1] * x + m[3] * y + m[5];
+    return out;
+};
+
+/**
+ * Transforms the vec2 with a mat3
+ * 3rd vector component is implicitly '1'
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the vector to transform
+ * @param {mat3} m matrix to transform with
+ * @returns {vec2} out
+ */
+vec2.transformMat3 = function(out, a, m) {
+    var x = a[0],
+        y = a[1];
+    out[0] = m[0] * x + m[3] * y + m[6];
+    out[1] = m[1] * x + m[4] * y + m[7];
+    return out;
+};
+
+/**
+ * Transforms the vec2 with a mat4
+ * 3rd vector component is implicitly '0'
+ * 4th vector component is implicitly '1'
+ *
+ * @param {vec2} out the receiving vector
+ * @param {vec2} a the vector to transform
+ * @param {mat4} m matrix to transform with
+ * @returns {vec2} out
+ */
+vec2.transformMat4 = function(out, a, m) {
+    var x = a[0], 
+        y = a[1];
+    out[0] = m[0] * x + m[4] * y + m[12];
+    out[1] = m[1] * x + m[5] * y + m[13];
+    return out;
+};
+
+/**
+ * Perform some operation over an array of vec2s.
+ *
+ * @param {Array} a the array of vectors to iterate over
+ * @param {Number} stride Number of elements between the start of each vec2. If 0 assumes tightly packed
+ * @param {Number} offset Number of elements to skip at the beginning of the array
+ * @param {Number} count Number of vec2s to iterate over. If 0 iterates over entire array
+ * @param {Function} fn Function to call for each vector in the array
+ * @param {Object} [arg] additional argument to pass to fn
+ * @returns {Array} a
+ * @function
+ */
+vec2.forEach = (function() {
+    var vec = vec2.create();
+
+    return function(a, stride, offset, count, fn, arg) {
+        var i, l;
+        if(!stride) {
+            stride = 2;
+        }
+
+        if(!offset) {
+            offset = 0;
+        }
+        
+        if(count) {
+            l = Math.min((count * stride) + offset, a.length);
+        } else {
+            l = a.length;
+        }
+
+        for(i = offset; i < l; i += stride) {
+            vec[0] = a[i]; vec[1] = a[i+1];
+            fn(vec, vec, arg);
+            a[i] = vec[0]; a[i+1] = vec[1];
+        }
+        
+        return a;
+    };
+})();
+
+/**
+ * Returns a string representation of a vector
+ *
+ * @param {vec2} vec vector to represent as a string
+ * @returns {String} string representation of the vector
+ */
+vec2.str = function (a) {
+    return 'vec2(' + a[0] + ', ' + a[1] + ')';
+};
+
+if(typeof(exports) !== 'undefined') {
+    exports.vec2 = vec2;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 3 Dimensional Vector
+ * @name vec3
+ */
+
+var vec3 = {};
+
+/**
+ * Creates a new, empty vec3
+ *
+ * @returns {vec3} a new 3D vector
+ */
+vec3.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(3);
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    return out;
+};
+
+/**
+ * Creates a new vec3 initialized with values from an existing vector
+ *
+ * @param {vec3} a vector to clone
+ * @returns {vec3} a new 3D vector
+ */
+vec3.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(3);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    return out;
+};
+
+/**
+ * Creates a new vec3 initialized with the given values
+ *
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @returns {vec3} a new 3D vector
+ */
+vec3.fromValues = function(x, y, z) {
+    var out = new GLMAT_ARRAY_TYPE(3);
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    return out;
+};
+
+/**
+ * Copy the values from one vec3 to another
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the source vector
+ * @returns {vec3} out
+ */
+vec3.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    return out;
+};
+
+/**
+ * Set the components of a vec3 to the given values
+ *
+ * @param {vec3} out the receiving vector
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @returns {vec3} out
+ */
+vec3.set = function(out, x, y, z) {
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    return out;
+};
+
+/**
+ * Adds two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.add = function(out, a, b) {
+    out[0] = a[0] + b[0];
+    out[1] = a[1] + b[1];
+    out[2] = a[2] + b[2];
+    return out;
+};
+
+/**
+ * Subtracts vector b from vector a
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.subtract = function(out, a, b) {
+    out[0] = a[0] - b[0];
+    out[1] = a[1] - b[1];
+    out[2] = a[2] - b[2];
+    return out;
+};
+
+/**
+ * Alias for {@link vec3.subtract}
+ * @function
+ */
+vec3.sub = vec3.subtract;
+
+/**
+ * Multiplies two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.multiply = function(out, a, b) {
+    out[0] = a[0] * b[0];
+    out[1] = a[1] * b[1];
+    out[2] = a[2] * b[2];
+    return out;
+};
+
+/**
+ * Alias for {@link vec3.multiply}
+ * @function
+ */
+vec3.mul = vec3.multiply;
+
+/**
+ * Divides two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.divide = function(out, a, b) {
+    out[0] = a[0] / b[0];
+    out[1] = a[1] / b[1];
+    out[2] = a[2] / b[2];
+    return out;
+};
+
+/**
+ * Alias for {@link vec3.divide}
+ * @function
+ */
+vec3.div = vec3.divide;
+
+/**
+ * Returns the minimum of two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.min = function(out, a, b) {
+    out[0] = Math.min(a[0], b[0]);
+    out[1] = Math.min(a[1], b[1]);
+    out[2] = Math.min(a[2], b[2]);
+    return out;
+};
+
+/**
+ * Returns the maximum of two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.max = function(out, a, b) {
+    out[0] = Math.max(a[0], b[0]);
+    out[1] = Math.max(a[1], b[1]);
+    out[2] = Math.max(a[2], b[2]);
+    return out;
+};
+
+/**
+ * Scales a vec3 by a scalar number
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the vector to scale
+ * @param {Number} b amount to scale the vector by
+ * @returns {vec3} out
+ */
+vec3.scale = function(out, a, b) {
+    out[0] = a[0] * b;
+    out[1] = a[1] * b;
+    out[2] = a[2] * b;
+    return out;
+};
+
+/**
+ * Adds two vec3's after scaling the second operand by a scalar value
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @param {Number} scale the amount to scale b by before adding
+ * @returns {vec3} out
+ */
+vec3.scaleAndAdd = function(out, a, b, scale) {
+    out[0] = a[0] + (b[0] * scale);
+    out[1] = a[1] + (b[1] * scale);
+    out[2] = a[2] + (b[2] * scale);
+    return out;
+};
+
+/**
+ * Calculates the euclidian distance between two vec3's
+ *
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {Number} distance between a and b
+ */
+vec3.distance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1],
+        z = b[2] - a[2];
+    return Math.sqrt(x*x + y*y + z*z);
+};
+
+/**
+ * Alias for {@link vec3.distance}
+ * @function
+ */
+vec3.dist = vec3.distance;
+
+/**
+ * Calculates the squared euclidian distance between two vec3's
+ *
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {Number} squared distance between a and b
+ */
+vec3.squaredDistance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1],
+        z = b[2] - a[2];
+    return x*x + y*y + z*z;
+};
+
+/**
+ * Alias for {@link vec3.squaredDistance}
+ * @function
+ */
+vec3.sqrDist = vec3.squaredDistance;
+
+/**
+ * Calculates the length of a vec3
+ *
+ * @param {vec3} a vector to calculate length of
+ * @returns {Number} length of a
+ */
+vec3.length = function (a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2];
+    return Math.sqrt(x*x + y*y + z*z);
+};
+
+/**
+ * Alias for {@link vec3.length}
+ * @function
+ */
+vec3.len = vec3.length;
+
+/**
+ * Calculates the squared length of a vec3
+ *
+ * @param {vec3} a vector to calculate squared length of
+ * @returns {Number} squared length of a
+ */
+vec3.squaredLength = function (a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2];
+    return x*x + y*y + z*z;
+};
+
+/**
+ * Alias for {@link vec3.squaredLength}
+ * @function
+ */
+vec3.sqrLen = vec3.squaredLength;
+
+/**
+ * Negates the components of a vec3
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a vector to negate
+ * @returns {vec3} out
+ */
+vec3.negate = function(out, a) {
+    out[0] = -a[0];
+    out[1] = -a[1];
+    out[2] = -a[2];
+    return out;
+};
+
+/**
+ * Normalize a vec3
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a vector to normalize
+ * @returns {vec3} out
+ */
+vec3.normalize = function(out, a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2];
+    var len = x*x + y*y + z*z;
+    if (len > 0) {
+        //TODO: evaluate use of glm_invsqrt here?
+        len = 1 / Math.sqrt(len);
+        out[0] = a[0] * len;
+        out[1] = a[1] * len;
+        out[2] = a[2] * len;
+    }
+    return out;
+};
+
+/**
+ * Calculates the dot product of two vec3's
+ *
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {Number} dot product of a and b
+ */
+vec3.dot = function (a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+};
+
+/**
+ * Computes the cross product of two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @returns {vec3} out
+ */
+vec3.cross = function(out, a, b) {
+    var ax = a[0], ay = a[1], az = a[2],
+        bx = b[0], by = b[1], bz = b[2];
+
+    out[0] = ay * bz - az * by;
+    out[1] = az * bx - ax * bz;
+    out[2] = ax * by - ay * bx;
+    return out;
+};
+
+/**
+ * Performs a linear interpolation between two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the first operand
+ * @param {vec3} b the second operand
+ * @param {Number} t interpolation amount between the two inputs
+ * @returns {vec3} out
+ */
+vec3.lerp = function (out, a, b, t) {
+    var ax = a[0],
+        ay = a[1],
+        az = a[2];
+    out[0] = ax + t * (b[0] - ax);
+    out[1] = ay + t * (b[1] - ay);
+    out[2] = az + t * (b[2] - az);
+    return out;
+};
+
+/**
+ * Generates a random vector with the given scale
+ *
+ * @param {vec3} out the receiving vector
+ * @param {Number} [scale] Length of the resulting vector. If ommitted, a unit vector will be returned
+ * @returns {vec3} out
+ */
+vec3.random = function (out, scale) {
+    scale = scale || 1.0;
+
+    var r = GLMAT_RANDOM() * 2.0 * Math.PI;
+    var z = (GLMAT_RANDOM() * 2.0) - 1.0;
+    var zScale = Math.sqrt(1.0-z*z) * scale;
+
+    out[0] = Math.cos(r) * zScale;
+    out[1] = Math.sin(r) * zScale;
+    out[2] = z * scale;
+    return out;
+};
+
+/**
+ * Transforms the vec3 with a mat4.
+ * 4th vector component is implicitly '1'
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the vector to transform
+ * @param {mat4} m matrix to transform with
+ * @returns {vec3} out
+ */
+vec3.transformMat4 = function(out, a, m) {
+    var x = a[0], y = a[1], z = a[2];
+    out[0] = m[0] * x + m[4] * y + m[8] * z + m[12];
+    out[1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+    out[2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    return out;
+};
+
+/**
+ * Transforms the vec3 with a mat3.
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the vector to transform
+ * @param {mat4} m the 3x3 matrix to transform with
+ * @returns {vec3} out
+ */
+vec3.transformMat3 = function(out, a, m) {
+    var x = a[0], y = a[1], z = a[2];
+    out[0] = x * m[0] + y * m[3] + z * m[6];
+    out[1] = x * m[1] + y * m[4] + z * m[7];
+    out[2] = x * m[2] + y * m[5] + z * m[8];
+    return out;
+};
+
+/**
+ * Transforms the vec3 with a quat
+ *
+ * @param {vec3} out the receiving vector
+ * @param {vec3} a the vector to transform
+ * @param {quat} q quaternion to transform with
+ * @returns {vec3} out
+ */
+vec3.transformQuat = function(out, a, q) {
+    // benchmarks: http://jsperf.com/quaternion-transform-vec3-implementations
+
+    var x = a[0], y = a[1], z = a[2],
+        qx = q[0], qy = q[1], qz = q[2], qw = q[3],
+
+        // calculate quat * vec
+        ix = qw * x + qy * z - qz * y,
+        iy = qw * y + qz * x - qx * z,
+        iz = qw * z + qx * y - qy * x,
+        iw = -qx * x - qy * y - qz * z;
+
+    // calculate result * inverse quat
+    out[0] = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+    out[1] = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+    out[2] = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+    return out;
+};
+
+/*
+* Rotate a 3D vector around the x-axis
+* @param {vec3} out The receiving vec3
+* @param {vec3} a The vec3 point to rotate
+* @param {vec3} b The origin of the rotation
+* @param {Number} c The angle of rotation
+* @returns {vec3} out
+*/
+vec3.rotateX = function(out, a, b, c){
+   var p = [], r=[];
+	  //Translate point to the origin
+	  p[0] = a[0] - b[0];
+	  p[1] = a[1] - b[1];
+  	p[2] = a[2] - b[2];
+
+	  //perform rotation
+	  r[0] = p[0];
+	  r[1] = p[1]*Math.cos(c) - p[2]*Math.sin(c);
+	  r[2] = p[1]*Math.sin(c) + p[2]*Math.cos(c);
+
+	  //translate to correct position
+	  out[0] = r[0] + b[0];
+	  out[1] = r[1] + b[1];
+	  out[2] = r[2] + b[2];
+
+  	return out;
+};
+
+/*
+* Rotate a 3D vector around the y-axis
+* @param {vec3} out The receiving vec3
+* @param {vec3} a The vec3 point to rotate
+* @param {vec3} b The origin of the rotation
+* @param {Number} c The angle of rotation
+* @returns {vec3} out
+*/
+vec3.rotateY = function(out, a, b, c){
+  	var p = [], r=[];
+  	//Translate point to the origin
+  	p[0] = a[0] - b[0];
+  	p[1] = a[1] - b[1];
+  	p[2] = a[2] - b[2];
+  
+  	//perform rotation
+  	r[0] = p[2]*Math.sin(c) + p[0]*Math.cos(c);
+  	r[1] = p[1];
+  	r[2] = p[2]*Math.cos(c) - p[0]*Math.sin(c);
+  
+  	//translate to correct position
+  	out[0] = r[0] + b[0];
+  	out[1] = r[1] + b[1];
+  	out[2] = r[2] + b[2];
+  
+  	return out;
+};
+
+/*
+* Rotate a 3D vector around the z-axis
+* @param {vec3} out The receiving vec3
+* @param {vec3} a The vec3 point to rotate
+* @param {vec3} b The origin of the rotation
+* @param {Number} c The angle of rotation
+* @returns {vec3} out
+*/
+vec3.rotateZ = function(out, a, b, c){
+  	var p = [], r=[];
+  	//Translate point to the origin
+  	p[0] = a[0] - b[0];
+  	p[1] = a[1] - b[1];
+  	p[2] = a[2] - b[2];
+  
+  	//perform rotation
+  	r[0] = p[0]*Math.cos(c) - p[1]*Math.sin(c);
+  	r[1] = p[0]*Math.sin(c) + p[1]*Math.cos(c);
+  	r[2] = p[2];
+  
+  	//translate to correct position
+  	out[0] = r[0] + b[0];
+  	out[1] = r[1] + b[1];
+  	out[2] = r[2] + b[2];
+  
+  	return out;
+};
+
+/**
+ * Perform some operation over an array of vec3s.
+ *
+ * @param {Array} a the array of vectors to iterate over
+ * @param {Number} stride Number of elements between the start of each vec3. If 0 assumes tightly packed
+ * @param {Number} offset Number of elements to skip at the beginning of the array
+ * @param {Number} count Number of vec3s to iterate over. If 0 iterates over entire array
+ * @param {Function} fn Function to call for each vector in the array
+ * @param {Object} [arg] additional argument to pass to fn
+ * @returns {Array} a
+ * @function
+ */
+vec3.forEach = (function() {
+    var vec = vec3.create();
+
+    return function(a, stride, offset, count, fn, arg) {
+        var i, l;
+        if(!stride) {
+            stride = 3;
+        }
+
+        if(!offset) {
+            offset = 0;
+        }
+        
+        if(count) {
+            l = Math.min((count * stride) + offset, a.length);
+        } else {
+            l = a.length;
+        }
+
+        for(i = offset; i < l; i += stride) {
+            vec[0] = a[i]; vec[1] = a[i+1]; vec[2] = a[i+2];
+            fn(vec, vec, arg);
+            a[i] = vec[0]; a[i+1] = vec[1]; a[i+2] = vec[2];
+        }
+        
+        return a;
+    };
+})();
+
+/**
+ * Returns a string representation of a vector
+ *
+ * @param {vec3} vec vector to represent as a string
+ * @returns {String} string representation of the vector
+ */
+vec3.str = function (a) {
+    return 'vec3(' + a[0] + ', ' + a[1] + ', ' + a[2] + ')';
+};
+
+if(typeof(exports) !== 'undefined') {
+    exports.vec3 = vec3;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 4 Dimensional Vector
+ * @name vec4
+ */
+
+var vec4 = {};
+
+/**
+ * Creates a new, empty vec4
+ *
+ * @returns {vec4} a new 4D vector
+ */
+vec4.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    return out;
+};
+
+/**
+ * Creates a new vec4 initialized with values from an existing vector
+ *
+ * @param {vec4} a vector to clone
+ * @returns {vec4} a new 4D vector
+ */
+vec4.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    return out;
+};
+
+/**
+ * Creates a new vec4 initialized with the given values
+ *
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @param {Number} w W component
+ * @returns {vec4} a new 4D vector
+ */
+vec4.fromValues = function(x, y, z, w) {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    out[3] = w;
+    return out;
+};
+
+/**
+ * Copy the values from one vec4 to another
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the source vector
+ * @returns {vec4} out
+ */
+vec4.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    return out;
+};
+
+/**
+ * Set the components of a vec4 to the given values
+ *
+ * @param {vec4} out the receiving vector
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @param {Number} w W component
+ * @returns {vec4} out
+ */
+vec4.set = function(out, x, y, z, w) {
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    out[3] = w;
+    return out;
+};
+
+/**
+ * Adds two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.add = function(out, a, b) {
+    out[0] = a[0] + b[0];
+    out[1] = a[1] + b[1];
+    out[2] = a[2] + b[2];
+    out[3] = a[3] + b[3];
+    return out;
+};
+
+/**
+ * Subtracts vector b from vector a
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.subtract = function(out, a, b) {
+    out[0] = a[0] - b[0];
+    out[1] = a[1] - b[1];
+    out[2] = a[2] - b[2];
+    out[3] = a[3] - b[3];
+    return out;
+};
+
+/**
+ * Alias for {@link vec4.subtract}
+ * @function
+ */
+vec4.sub = vec4.subtract;
+
+/**
+ * Multiplies two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.multiply = function(out, a, b) {
+    out[0] = a[0] * b[0];
+    out[1] = a[1] * b[1];
+    out[2] = a[2] * b[2];
+    out[3] = a[3] * b[3];
+    return out;
+};
+
+/**
+ * Alias for {@link vec4.multiply}
+ * @function
+ */
+vec4.mul = vec4.multiply;
+
+/**
+ * Divides two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.divide = function(out, a, b) {
+    out[0] = a[0] / b[0];
+    out[1] = a[1] / b[1];
+    out[2] = a[2] / b[2];
+    out[3] = a[3] / b[3];
+    return out;
+};
+
+/**
+ * Alias for {@link vec4.divide}
+ * @function
+ */
+vec4.div = vec4.divide;
+
+/**
+ * Returns the minimum of two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.min = function(out, a, b) {
+    out[0] = Math.min(a[0], b[0]);
+    out[1] = Math.min(a[1], b[1]);
+    out[2] = Math.min(a[2], b[2]);
+    out[3] = Math.min(a[3], b[3]);
+    return out;
+};
+
+/**
+ * Returns the maximum of two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {vec4} out
+ */
+vec4.max = function(out, a, b) {
+    out[0] = Math.max(a[0], b[0]);
+    out[1] = Math.max(a[1], b[1]);
+    out[2] = Math.max(a[2], b[2]);
+    out[3] = Math.max(a[3], b[3]);
+    return out;
+};
+
+/**
+ * Scales a vec4 by a scalar number
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the vector to scale
+ * @param {Number} b amount to scale the vector by
+ * @returns {vec4} out
+ */
+vec4.scale = function(out, a, b) {
+    out[0] = a[0] * b;
+    out[1] = a[1] * b;
+    out[2] = a[2] * b;
+    out[3] = a[3] * b;
+    return out;
+};
+
+/**
+ * Adds two vec4's after scaling the second operand by a scalar value
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @param {Number} scale the amount to scale b by before adding
+ * @returns {vec4} out
+ */
+vec4.scaleAndAdd = function(out, a, b, scale) {
+    out[0] = a[0] + (b[0] * scale);
+    out[1] = a[1] + (b[1] * scale);
+    out[2] = a[2] + (b[2] * scale);
+    out[3] = a[3] + (b[3] * scale);
+    return out;
+};
+
+/**
+ * Calculates the euclidian distance between two vec4's
+ *
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {Number} distance between a and b
+ */
+vec4.distance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1],
+        z = b[2] - a[2],
+        w = b[3] - a[3];
+    return Math.sqrt(x*x + y*y + z*z + w*w);
+};
+
+/**
+ * Alias for {@link vec4.distance}
+ * @function
+ */
+vec4.dist = vec4.distance;
+
+/**
+ * Calculates the squared euclidian distance between two vec4's
+ *
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {Number} squared distance between a and b
+ */
+vec4.squaredDistance = function(a, b) {
+    var x = b[0] - a[0],
+        y = b[1] - a[1],
+        z = b[2] - a[2],
+        w = b[3] - a[3];
+    return x*x + y*y + z*z + w*w;
+};
+
+/**
+ * Alias for {@link vec4.squaredDistance}
+ * @function
+ */
+vec4.sqrDist = vec4.squaredDistance;
+
+/**
+ * Calculates the length of a vec4
+ *
+ * @param {vec4} a vector to calculate length of
+ * @returns {Number} length of a
+ */
+vec4.length = function (a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2],
+        w = a[3];
+    return Math.sqrt(x*x + y*y + z*z + w*w);
+};
+
+/**
+ * Alias for {@link vec4.length}
+ * @function
+ */
+vec4.len = vec4.length;
+
+/**
+ * Calculates the squared length of a vec4
+ *
+ * @param {vec4} a vector to calculate squared length of
+ * @returns {Number} squared length of a
+ */
+vec4.squaredLength = function (a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2],
+        w = a[3];
+    return x*x + y*y + z*z + w*w;
+};
+
+/**
+ * Alias for {@link vec4.squaredLength}
+ * @function
+ */
+vec4.sqrLen = vec4.squaredLength;
+
+/**
+ * Negates the components of a vec4
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a vector to negate
+ * @returns {vec4} out
+ */
+vec4.negate = function(out, a) {
+    out[0] = -a[0];
+    out[1] = -a[1];
+    out[2] = -a[2];
+    out[3] = -a[3];
+    return out;
+};
+
+/**
+ * Normalize a vec4
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a vector to normalize
+ * @returns {vec4} out
+ */
+vec4.normalize = function(out, a) {
+    var x = a[0],
+        y = a[1],
+        z = a[2],
+        w = a[3];
+    var len = x*x + y*y + z*z + w*w;
+    if (len > 0) {
+        len = 1 / Math.sqrt(len);
+        out[0] = a[0] * len;
+        out[1] = a[1] * len;
+        out[2] = a[2] * len;
+        out[3] = a[3] * len;
+    }
+    return out;
+};
+
+/**
+ * Calculates the dot product of two vec4's
+ *
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @returns {Number} dot product of a and b
+ */
+vec4.dot = function (a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+};
+
+/**
+ * Performs a linear interpolation between two vec4's
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the first operand
+ * @param {vec4} b the second operand
+ * @param {Number} t interpolation amount between the two inputs
+ * @returns {vec4} out
+ */
+vec4.lerp = function (out, a, b, t) {
+    var ax = a[0],
+        ay = a[1],
+        az = a[2],
+        aw = a[3];
+    out[0] = ax + t * (b[0] - ax);
+    out[1] = ay + t * (b[1] - ay);
+    out[2] = az + t * (b[2] - az);
+    out[3] = aw + t * (b[3] - aw);
+    return out;
+};
+
+/**
+ * Generates a random vector with the given scale
+ *
+ * @param {vec4} out the receiving vector
+ * @param {Number} [scale] Length of the resulting vector. If ommitted, a unit vector will be returned
+ * @returns {vec4} out
+ */
+vec4.random = function (out, scale) {
+    scale = scale || 1.0;
+
+    //TODO: This is a pretty awful way of doing this. Find something better.
+    out[0] = GLMAT_RANDOM();
+    out[1] = GLMAT_RANDOM();
+    out[2] = GLMAT_RANDOM();
+    out[3] = GLMAT_RANDOM();
+    vec4.normalize(out, out);
+    vec4.scale(out, out, scale);
+    return out;
+};
+
+/**
+ * Transforms the vec4 with a mat4.
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the vector to transform
+ * @param {mat4} m matrix to transform with
+ * @returns {vec4} out
+ */
+vec4.transformMat4 = function(out, a, m) {
+    var x = a[0], y = a[1], z = a[2], w = a[3];
+    out[0] = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
+    out[1] = m[1] * x + m[5] * y + m[9] * z + m[13] * w;
+    out[2] = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
+    out[3] = m[3] * x + m[7] * y + m[11] * z + m[15] * w;
+    return out;
+};
+
+/**
+ * Transforms the vec4 with a quat
+ *
+ * @param {vec4} out the receiving vector
+ * @param {vec4} a the vector to transform
+ * @param {quat} q quaternion to transform with
+ * @returns {vec4} out
+ */
+vec4.transformQuat = function(out, a, q) {
+    var x = a[0], y = a[1], z = a[2],
+        qx = q[0], qy = q[1], qz = q[2], qw = q[3],
+
+        // calculate quat * vec
+        ix = qw * x + qy * z - qz * y,
+        iy = qw * y + qz * x - qx * z,
+        iz = qw * z + qx * y - qy * x,
+        iw = -qx * x - qy * y - qz * z;
+
+    // calculate result * inverse quat
+    out[0] = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+    out[1] = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+    out[2] = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+    return out;
+};
+
+/**
+ * Perform some operation over an array of vec4s.
+ *
+ * @param {Array} a the array of vectors to iterate over
+ * @param {Number} stride Number of elements between the start of each vec4. If 0 assumes tightly packed
+ * @param {Number} offset Number of elements to skip at the beginning of the array
+ * @param {Number} count Number of vec2s to iterate over. If 0 iterates over entire array
+ * @param {Function} fn Function to call for each vector in the array
+ * @param {Object} [arg] additional argument to pass to fn
+ * @returns {Array} a
+ * @function
+ */
+vec4.forEach = (function() {
+    var vec = vec4.create();
+
+    return function(a, stride, offset, count, fn, arg) {
+        var i, l;
+        if(!stride) {
+            stride = 4;
+        }
+
+        if(!offset) {
+            offset = 0;
+        }
+        
+        if(count) {
+            l = Math.min((count * stride) + offset, a.length);
+        } else {
+            l = a.length;
+        }
+
+        for(i = offset; i < l; i += stride) {
+            vec[0] = a[i]; vec[1] = a[i+1]; vec[2] = a[i+2]; vec[3] = a[i+3];
+            fn(vec, vec, arg);
+            a[i] = vec[0]; a[i+1] = vec[1]; a[i+2] = vec[2]; a[i+3] = vec[3];
+        }
+        
+        return a;
+    };
+})();
+
+/**
+ * Returns a string representation of a vector
+ *
+ * @param {vec4} vec vector to represent as a string
+ * @returns {String} string representation of the vector
+ */
+vec4.str = function (a) {
+    return 'vec4(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ')';
+};
+
+if(typeof(exports) !== 'undefined') {
+    exports.vec4 = vec4;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 2x2 Matrix
+ * @name mat2
+ */
+
+var mat2 = {};
+
+/**
+ * Creates a new identity mat2
+ *
+ * @returns {mat2} a new 2x2 matrix
+ */
+mat2.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
+};
+
+/**
+ * Creates a new mat2 initialized with values from an existing matrix
+ *
+ * @param {mat2} a matrix to clone
+ * @returns {mat2} a new 2x2 matrix
+ */
+mat2.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    return out;
+};
+
+/**
+ * Copy the values from one mat2 to another
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the source matrix
+ * @returns {mat2} out
+ */
+mat2.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    return out;
+};
+
+/**
+ * Set a mat2 to the identity matrix
+ *
+ * @param {mat2} out the receiving matrix
+ * @returns {mat2} out
+ */
+mat2.identity = function(out) {
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
+};
+
+/**
+ * Transpose the values of a mat2
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the source matrix
+ * @returns {mat2} out
+ */
+mat2.transpose = function(out, a) {
+    // If we are transposing ourselves we can skip a few steps but have to cache some values
+    if (out === a) {
+        var a1 = a[1];
+        out[1] = a[2];
+        out[2] = a1;
+    } else {
+        out[0] = a[0];
+        out[1] = a[2];
+        out[2] = a[1];
+        out[3] = a[3];
+    }
+    
+    return out;
+};
+
+/**
+ * Inverts a mat2
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the source matrix
+ * @returns {mat2} out
+ */
+mat2.invert = function(out, a) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3],
+
+        // Calculate the determinant
+        det = a0 * a3 - a2 * a1;
+
+    if (!det) {
+        return null;
+    }
+    det = 1.0 / det;
+    
+    out[0] =  a3 * det;
+    out[1] = -a1 * det;
+    out[2] = -a2 * det;
+    out[3] =  a0 * det;
+
+    return out;
+};
+
+/**
+ * Calculates the adjugate of a mat2
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the source matrix
+ * @returns {mat2} out
+ */
+mat2.adjoint = function(out, a) {
+    // Caching this value is nessecary if out == a
+    var a0 = a[0];
+    out[0] =  a[3];
+    out[1] = -a[1];
+    out[2] = -a[2];
+    out[3] =  a0;
+
+    return out;
+};
+
+/**
+ * Calculates the determinant of a mat2
+ *
+ * @param {mat2} a the source matrix
+ * @returns {Number} determinant of a
+ */
+mat2.determinant = function (a) {
+    return a[0] * a[3] - a[2] * a[1];
+};
+
+/**
+ * Multiplies two mat2's
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the first operand
+ * @param {mat2} b the second operand
+ * @returns {mat2} out
+ */
+mat2.multiply = function (out, a, b) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3];
+    var b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+    out[0] = a0 * b0 + a2 * b1;
+    out[1] = a1 * b0 + a3 * b1;
+    out[2] = a0 * b2 + a2 * b3;
+    out[3] = a1 * b2 + a3 * b3;
+    return out;
+};
+
+/**
+ * Alias for {@link mat2.multiply}
+ * @function
+ */
+mat2.mul = mat2.multiply;
+
+/**
+ * Rotates a mat2 by the given angle
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat2} out
+ */
+mat2.rotate = function (out, a, rad) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3],
+        s = Math.sin(rad),
+        c = Math.cos(rad);
+    out[0] = a0 *  c + a2 * s;
+    out[1] = a1 *  c + a3 * s;
+    out[2] = a0 * -s + a2 * c;
+    out[3] = a1 * -s + a3 * c;
+    return out;
+};
+
+/**
+ * Scales the mat2 by the dimensions in the given vec2
+ *
+ * @param {mat2} out the receiving matrix
+ * @param {mat2} a the matrix to rotate
+ * @param {vec2} v the vec2 to scale the matrix by
+ * @returns {mat2} out
+ **/
+mat2.scale = function(out, a, v) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3],
+        v0 = v[0], v1 = v[1];
+    out[0] = a0 * v0;
+    out[1] = a1 * v0;
+    out[2] = a2 * v1;
+    out[3] = a3 * v1;
+    return out;
+};
+
+/**
+ * Returns a string representation of a mat2
+ *
+ * @param {mat2} mat matrix to represent as a string
+ * @returns {String} string representation of the matrix
+ */
+mat2.str = function (a) {
+    return 'mat2(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ')';
+};
+
+/**
+ * Returns Frobenius norm of a mat2
+ *
+ * @param {mat2} a the matrix to calculate Frobenius norm of
+ * @returns {Number} Frobenius norm
+ */
+mat2.frob = function (a) {
+    return(Math.sqrt(Math.pow(a[0], 2) + Math.pow(a[1], 2) + Math.pow(a[2], 2) + Math.pow(a[3], 2)))
+};
+
+/**
+ * Returns L, D and U matrices (Lower triangular, Diagonal and Upper triangular) by factorizing the input matrix
+ * @param {mat2} L the lower triangular matrix 
+ * @param {mat2} D the diagonal matrix 
+ * @param {mat2} U the upper triangular matrix 
+ * @param {mat2} a the input matrix to factorize
+ */
+
+mat2.LDU = function (L, D, U, a) { 
+    L[2] = a[2]/a[0]; 
+    U[0] = a[0]; 
+    U[1] = a[1]; 
+    U[3] = a[3] - L[2] * U[1]; 
+    return [L, D, U];       
+}; 
+
+if(typeof(exports) !== 'undefined') {
+    exports.mat2 = mat2;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 2x3 Matrix
+ * @name mat2d
+ * 
+ * @description 
+ * A mat2d contains six elements defined as:
+ * <pre>
+ * [a, c, tx,
+ *  b, d, ty]
+ * </pre>
+ * This is a short form for the 3x3 matrix:
+ * <pre>
+ * [a, c, tx,
+ *  b, d, ty,
+ *  0, 0, 1]
+ * </pre>
+ * The last row is ignored so the array is shorter and operations are faster.
+ */
+
+var mat2d = {};
+
+/**
+ * Creates a new identity mat2d
+ *
+ * @returns {mat2d} a new 2x3 matrix
+ */
+mat2d.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(6);
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    out[4] = 0;
+    out[5] = 0;
+    return out;
+};
+
+/**
+ * Creates a new mat2d initialized with values from an existing matrix
+ *
+ * @param {mat2d} a matrix to clone
+ * @returns {mat2d} a new 2x3 matrix
+ */
+mat2d.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(6);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    return out;
+};
+
+/**
+ * Copy the values from one mat2d to another
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the source matrix
+ * @returns {mat2d} out
+ */
+mat2d.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    return out;
+};
+
+/**
+ * Set a mat2d to the identity matrix
+ *
+ * @param {mat2d} out the receiving matrix
+ * @returns {mat2d} out
+ */
+mat2d.identity = function(out) {
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    out[4] = 0;
+    out[5] = 0;
+    return out;
+};
+
+/**
+ * Inverts a mat2d
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the source matrix
+ * @returns {mat2d} out
+ */
+mat2d.invert = function(out, a) {
+    var aa = a[0], ab = a[1], ac = a[2], ad = a[3],
+        atx = a[4], aty = a[5];
+
+    var det = aa * ad - ab * ac;
+    if(!det){
+        return null;
+    }
+    det = 1.0 / det;
+
+    out[0] = ad * det;
+    out[1] = -ab * det;
+    out[2] = -ac * det;
+    out[3] = aa * det;
+    out[4] = (ac * aty - ad * atx) * det;
+    out[5] = (ab * atx - aa * aty) * det;
+    return out;
+};
+
+/**
+ * Calculates the determinant of a mat2d
+ *
+ * @param {mat2d} a the source matrix
+ * @returns {Number} determinant of a
+ */
+mat2d.determinant = function (a) {
+    return a[0] * a[3] - a[1] * a[2];
+};
+
+/**
+ * Multiplies two mat2d's
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the first operand
+ * @param {mat2d} b the second operand
+ * @returns {mat2d} out
+ */
+mat2d.multiply = function (out, a, b) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5],
+        b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3], b4 = b[4], b5 = b[5];
+    out[0] = a0 * b0 + a2 * b1;
+    out[1] = a1 * b0 + a3 * b1;
+    out[2] = a0 * b2 + a2 * b3;
+    out[3] = a1 * b2 + a3 * b3;
+    out[4] = a0 * b4 + a2 * b5 + a4;
+    out[5] = a1 * b4 + a3 * b5 + a5;
+    return out;
+};
+
+/**
+ * Alias for {@link mat2d.multiply}
+ * @function
+ */
+mat2d.mul = mat2d.multiply;
+
+
+/**
+ * Rotates a mat2d by the given angle
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat2d} out
+ */
+mat2d.rotate = function (out, a, rad) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5],
+        s = Math.sin(rad),
+        c = Math.cos(rad);
+    out[0] = a0 *  c + a2 * s;
+    out[1] = a1 *  c + a3 * s;
+    out[2] = a0 * -s + a2 * c;
+    out[3] = a1 * -s + a3 * c;
+    out[4] = a4;
+    out[5] = a5;
+    return out;
+};
+
+/**
+ * Scales the mat2d by the dimensions in the given vec2
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the matrix to translate
+ * @param {vec2} v the vec2 to scale the matrix by
+ * @returns {mat2d} out
+ **/
+mat2d.scale = function(out, a, v) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5],
+        v0 = v[0], v1 = v[1];
+    out[0] = a0 * v0;
+    out[1] = a1 * v0;
+    out[2] = a2 * v1;
+    out[3] = a3 * v1;
+    out[4] = a4;
+    out[5] = a5;
+    return out;
+};
+
+/**
+ * Translates the mat2d by the dimensions in the given vec2
+ *
+ * @param {mat2d} out the receiving matrix
+ * @param {mat2d} a the matrix to translate
+ * @param {vec2} v the vec2 to translate the matrix by
+ * @returns {mat2d} out
+ **/
+mat2d.translate = function(out, a, v) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5],
+        v0 = v[0], v1 = v[1];
+    out[0] = a0;
+    out[1] = a1;
+    out[2] = a2;
+    out[3] = a3;
+    out[4] = a0 * v0 + a2 * v1 + a4;
+    out[5] = a1 * v0 + a3 * v1 + a5;
+    return out;
+};
+
+/**
+ * Returns a string representation of a mat2d
+ *
+ * @param {mat2d} a matrix to represent as a string
+ * @returns {String} string representation of the matrix
+ */
+mat2d.str = function (a) {
+    return 'mat2d(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + 
+                    a[3] + ', ' + a[4] + ', ' + a[5] + ')';
+};
+
+/**
+ * Returns Frobenius norm of a mat2d
+ *
+ * @param {mat2d} a the matrix to calculate Frobenius norm of
+ * @returns {Number} Frobenius norm
+ */
+mat2d.frob = function (a) { 
+    return(Math.sqrt(Math.pow(a[0], 2) + Math.pow(a[1], 2) + Math.pow(a[2], 2) + Math.pow(a[3], 2) + Math.pow(a[4], 2) + Math.pow(a[5], 2) + 1))
+}; 
+
+if(typeof(exports) !== 'undefined') {
+    exports.mat2d = mat2d;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 3x3 Matrix
+ * @name mat3
+ */
+
+var mat3 = {};
+
+/**
+ * Creates a new identity mat3
+ *
+ * @returns {mat3} a new 3x3 matrix
+ */
+mat3.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(9);
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 1;
+    out[5] = 0;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 1;
+    return out;
+};
+
+/**
+ * Copies the upper-left 3x3 values into the given mat3.
+ *
+ * @param {mat3} out the receiving 3x3 matrix
+ * @param {mat4} a   the source 4x4 matrix
+ * @returns {mat3} out
+ */
+mat3.fromMat4 = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[4];
+    out[4] = a[5];
+    out[5] = a[6];
+    out[6] = a[8];
+    out[7] = a[9];
+    out[8] = a[10];
+    return out;
+};
+
+/**
+ * Creates a new mat3 initialized with values from an existing matrix
+ *
+ * @param {mat3} a matrix to clone
+ * @returns {mat3} a new 3x3 matrix
+ */
+mat3.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(9);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    out[6] = a[6];
+    out[7] = a[7];
+    out[8] = a[8];
+    return out;
+};
+
+/**
+ * Copy the values from one mat3 to another
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the source matrix
+ * @returns {mat3} out
+ */
+mat3.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    out[6] = a[6];
+    out[7] = a[7];
+    out[8] = a[8];
+    return out;
+};
+
+/**
+ * Set a mat3 to the identity matrix
+ *
+ * @param {mat3} out the receiving matrix
+ * @returns {mat3} out
+ */
+mat3.identity = function(out) {
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 1;
+    out[5] = 0;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 1;
+    return out;
+};
+
+/**
+ * Transpose the values of a mat3
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the source matrix
+ * @returns {mat3} out
+ */
+mat3.transpose = function(out, a) {
+    // If we are transposing ourselves we can skip a few steps but have to cache some values
+    if (out === a) {
+        var a01 = a[1], a02 = a[2], a12 = a[5];
+        out[1] = a[3];
+        out[2] = a[6];
+        out[3] = a01;
+        out[5] = a[7];
+        out[6] = a02;
+        out[7] = a12;
+    } else {
+        out[0] = a[0];
+        out[1] = a[3];
+        out[2] = a[6];
+        out[3] = a[1];
+        out[4] = a[4];
+        out[5] = a[7];
+        out[6] = a[2];
+        out[7] = a[5];
+        out[8] = a[8];
+    }
+    
+    return out;
+};
+
+/**
+ * Inverts a mat3
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the source matrix
+ * @returns {mat3} out
+ */
+mat3.invert = function(out, a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8],
+
+        b01 = a22 * a11 - a12 * a21,
+        b11 = -a22 * a10 + a12 * a20,
+        b21 = a21 * a10 - a11 * a20,
+
+        // Calculate the determinant
+        det = a00 * b01 + a01 * b11 + a02 * b21;
+
+    if (!det) { 
+        return null; 
+    }
+    det = 1.0 / det;
+
+    out[0] = b01 * det;
+    out[1] = (-a22 * a01 + a02 * a21) * det;
+    out[2] = (a12 * a01 - a02 * a11) * det;
+    out[3] = b11 * det;
+    out[4] = (a22 * a00 - a02 * a20) * det;
+    out[5] = (-a12 * a00 + a02 * a10) * det;
+    out[6] = b21 * det;
+    out[7] = (-a21 * a00 + a01 * a20) * det;
+    out[8] = (a11 * a00 - a01 * a10) * det;
+    return out;
+};
+
+/**
+ * Calculates the adjugate of a mat3
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the source matrix
+ * @returns {mat3} out
+ */
+mat3.adjoint = function(out, a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8];
+
+    out[0] = (a11 * a22 - a12 * a21);
+    out[1] = (a02 * a21 - a01 * a22);
+    out[2] = (a01 * a12 - a02 * a11);
+    out[3] = (a12 * a20 - a10 * a22);
+    out[4] = (a00 * a22 - a02 * a20);
+    out[5] = (a02 * a10 - a00 * a12);
+    out[6] = (a10 * a21 - a11 * a20);
+    out[7] = (a01 * a20 - a00 * a21);
+    out[8] = (a00 * a11 - a01 * a10);
+    return out;
+};
+
+/**
+ * Calculates the determinant of a mat3
+ *
+ * @param {mat3} a the source matrix
+ * @returns {Number} determinant of a
+ */
+mat3.determinant = function (a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8];
+
+    return a00 * (a22 * a11 - a12 * a21) + a01 * (-a22 * a10 + a12 * a20) + a02 * (a21 * a10 - a11 * a20);
+};
+
+/**
+ * Multiplies two mat3's
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the first operand
+ * @param {mat3} b the second operand
+ * @returns {mat3} out
+ */
+mat3.multiply = function (out, a, b) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8],
+
+        b00 = b[0], b01 = b[1], b02 = b[2],
+        b10 = b[3], b11 = b[4], b12 = b[5],
+        b20 = b[6], b21 = b[7], b22 = b[8];
+
+    out[0] = b00 * a00 + b01 * a10 + b02 * a20;
+    out[1] = b00 * a01 + b01 * a11 + b02 * a21;
+    out[2] = b00 * a02 + b01 * a12 + b02 * a22;
+
+    out[3] = b10 * a00 + b11 * a10 + b12 * a20;
+    out[4] = b10 * a01 + b11 * a11 + b12 * a21;
+    out[5] = b10 * a02 + b11 * a12 + b12 * a22;
+
+    out[6] = b20 * a00 + b21 * a10 + b22 * a20;
+    out[7] = b20 * a01 + b21 * a11 + b22 * a21;
+    out[8] = b20 * a02 + b21 * a12 + b22 * a22;
+    return out;
+};
+
+/**
+ * Alias for {@link mat3.multiply}
+ * @function
+ */
+mat3.mul = mat3.multiply;
+
+/**
+ * Translate a mat3 by the given vector
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the matrix to translate
+ * @param {vec2} v vector to translate by
+ * @returns {mat3} out
+ */
+mat3.translate = function(out, a, v) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8],
+        x = v[0], y = v[1];
+
+    out[0] = a00;
+    out[1] = a01;
+    out[2] = a02;
+
+    out[3] = a10;
+    out[4] = a11;
+    out[5] = a12;
+
+    out[6] = x * a00 + y * a10 + a20;
+    out[7] = x * a01 + y * a11 + a21;
+    out[8] = x * a02 + y * a12 + a22;
+    return out;
+};
+
+/**
+ * Rotates a mat3 by the given angle
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat3} out
+ */
+mat3.rotate = function (out, a, rad) {
+    var a00 = a[0], a01 = a[1], a02 = a[2],
+        a10 = a[3], a11 = a[4], a12 = a[5],
+        a20 = a[6], a21 = a[7], a22 = a[8],
+
+        s = Math.sin(rad),
+        c = Math.cos(rad);
+
+    out[0] = c * a00 + s * a10;
+    out[1] = c * a01 + s * a11;
+    out[2] = c * a02 + s * a12;
+
+    out[3] = c * a10 - s * a00;
+    out[4] = c * a11 - s * a01;
+    out[5] = c * a12 - s * a02;
+
+    out[6] = a20;
+    out[7] = a21;
+    out[8] = a22;
+    return out;
+};
+
+/**
+ * Scales the mat3 by the dimensions in the given vec2
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat3} a the matrix to rotate
+ * @param {vec2} v the vec2 to scale the matrix by
+ * @returns {mat3} out
+ **/
+mat3.scale = function(out, a, v) {
+    var x = v[0], y = v[1];
+
+    out[0] = x * a[0];
+    out[1] = x * a[1];
+    out[2] = x * a[2];
+
+    out[3] = y * a[3];
+    out[4] = y * a[4];
+    out[5] = y * a[5];
+
+    out[6] = a[6];
+    out[7] = a[7];
+    out[8] = a[8];
+    return out;
+};
+
+/**
+ * Copies the values from a mat2d into a mat3
+ *
+ * @param {mat3} out the receiving matrix
+ * @param {mat2d} a the matrix to copy
+ * @returns {mat3} out
+ **/
+mat3.fromMat2d = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = 0;
+
+    out[3] = a[2];
+    out[4] = a[3];
+    out[5] = 0;
+
+    out[6] = a[4];
+    out[7] = a[5];
+    out[8] = 1;
+    return out;
+};
+
+/**
+* Calculates a 3x3 matrix from the given quaternion
+*
+* @param {mat3} out mat3 receiving operation result
+* @param {quat} q Quaternion to create matrix from
+*
+* @returns {mat3} out
+*/
+mat3.fromQuat = function (out, q) {
+    var x = q[0], y = q[1], z = q[2], w = q[3],
+        x2 = x + x,
+        y2 = y + y,
+        z2 = z + z,
+
+        xx = x * x2,
+        yx = y * x2,
+        yy = y * y2,
+        zx = z * x2,
+        zy = z * y2,
+        zz = z * z2,
+        wx = w * x2,
+        wy = w * y2,
+        wz = w * z2;
+
+    out[0] = 1 - yy - zz;
+    out[3] = yx - wz;
+    out[6] = zx + wy;
+
+    out[1] = yx + wz;
+    out[4] = 1 - xx - zz;
+    out[7] = zy - wx;
+
+    out[2] = zx - wy;
+    out[5] = zy + wx;
+    out[8] = 1 - xx - yy;
+
+    return out;
+};
+
+/**
+* Calculates a 3x3 normal matrix (transpose inverse) from the 4x4 matrix
+*
+* @param {mat3} out mat3 receiving operation result
+* @param {mat4} a Mat4 to derive the normal matrix from
+*
+* @returns {mat3} out
+*/
+mat3.normalFromMat4 = function (out, a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+        a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+        a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+        a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15],
+
+        b00 = a00 * a11 - a01 * a10,
+        b01 = a00 * a12 - a02 * a10,
+        b02 = a00 * a13 - a03 * a10,
+        b03 = a01 * a12 - a02 * a11,
+        b04 = a01 * a13 - a03 * a11,
+        b05 = a02 * a13 - a03 * a12,
+        b06 = a20 * a31 - a21 * a30,
+        b07 = a20 * a32 - a22 * a30,
+        b08 = a20 * a33 - a23 * a30,
+        b09 = a21 * a32 - a22 * a31,
+        b10 = a21 * a33 - a23 * a31,
+        b11 = a22 * a33 - a23 * a32,
+
+        // Calculate the determinant
+        det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+
+    if (!det) { 
+        return null; 
+    }
+    det = 1.0 / det;
+
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[2] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+
+    out[3] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[4] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[5] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+
+    out[6] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[7] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[8] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+
+    return out;
+};
+
+/**
+ * Returns a string representation of a mat3
+ *
+ * @param {mat3} mat matrix to represent as a string
+ * @returns {String} string representation of the matrix
+ */
+mat3.str = function (a) {
+    return 'mat3(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + 
+                    a[3] + ', ' + a[4] + ', ' + a[5] + ', ' + 
+                    a[6] + ', ' + a[7] + ', ' + a[8] + ')';
+};
+
+/**
+ * Returns Frobenius norm of a mat3
+ *
+ * @param {mat3} a the matrix to calculate Frobenius norm of
+ * @returns {Number} Frobenius norm
+ */
+mat3.frob = function (a) {
+    return(Math.sqrt(Math.pow(a[0], 2) + Math.pow(a[1], 2) + Math.pow(a[2], 2) + Math.pow(a[3], 2) + Math.pow(a[4], 2) + Math.pow(a[5], 2) + Math.pow(a[6], 2) + Math.pow(a[7], 2) + Math.pow(a[8], 2)))
+};
+
+
+if(typeof(exports) !== 'undefined') {
+    exports.mat3 = mat3;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class 4x4 Matrix
+ * @name mat4
+ */
+
+var mat4 = {};
+
+/**
+ * Creates a new identity mat4
+ *
+ * @returns {mat4} a new 4x4 matrix
+ */
+mat4.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(16);
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = 1;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = 1;
+    out[11] = 0;
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = 0;
+    out[15] = 1;
+    return out;
+};
+
+/**
+ * Creates a new mat4 initialized with values from an existing matrix
+ *
+ * @param {mat4} a matrix to clone
+ * @returns {mat4} a new 4x4 matrix
+ */
+mat4.clone = function(a) {
+    var out = new GLMAT_ARRAY_TYPE(16);
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    out[6] = a[6];
+    out[7] = a[7];
+    out[8] = a[8];
+    out[9] = a[9];
+    out[10] = a[10];
+    out[11] = a[11];
+    out[12] = a[12];
+    out[13] = a[13];
+    out[14] = a[14];
+    out[15] = a[15];
+    return out;
+};
+
+/**
+ * Copy the values from one mat4 to another
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the source matrix
+ * @returns {mat4} out
+ */
+mat4.copy = function(out, a) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    out[4] = a[4];
+    out[5] = a[5];
+    out[6] = a[6];
+    out[7] = a[7];
+    out[8] = a[8];
+    out[9] = a[9];
+    out[10] = a[10];
+    out[11] = a[11];
+    out[12] = a[12];
+    out[13] = a[13];
+    out[14] = a[14];
+    out[15] = a[15];
+    return out;
+};
+
+/**
+ * Set a mat4 to the identity matrix
+ *
+ * @param {mat4} out the receiving matrix
+ * @returns {mat4} out
+ */
+mat4.identity = function(out) {
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = 1;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = 1;
+    out[11] = 0;
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = 0;
+    out[15] = 1;
+    return out;
+};
+
+/**
+ * Transpose the values of a mat4
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the source matrix
+ * @returns {mat4} out
+ */
+mat4.transpose = function(out, a) {
+    // If we are transposing ourselves we can skip a few steps but have to cache some values
+    if (out === a) {
+        var a01 = a[1], a02 = a[2], a03 = a[3],
+            a12 = a[6], a13 = a[7],
+            a23 = a[11];
+
+        out[1] = a[4];
+        out[2] = a[8];
+        out[3] = a[12];
+        out[4] = a01;
+        out[6] = a[9];
+        out[7] = a[13];
+        out[8] = a02;
+        out[9] = a12;
+        out[11] = a[14];
+        out[12] = a03;
+        out[13] = a13;
+        out[14] = a23;
+    } else {
+        out[0] = a[0];
+        out[1] = a[4];
+        out[2] = a[8];
+        out[3] = a[12];
+        out[4] = a[1];
+        out[5] = a[5];
+        out[6] = a[9];
+        out[7] = a[13];
+        out[8] = a[2];
+        out[9] = a[6];
+        out[10] = a[10];
+        out[11] = a[14];
+        out[12] = a[3];
+        out[13] = a[7];
+        out[14] = a[11];
+        out[15] = a[15];
+    }
+    
+    return out;
+};
+
+/**
+ * Inverts a mat4
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the source matrix
+ * @returns {mat4} out
+ */
+mat4.invert = function(out, a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+        a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+        a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+        a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15],
+
+        b00 = a00 * a11 - a01 * a10,
+        b01 = a00 * a12 - a02 * a10,
+        b02 = a00 * a13 - a03 * a10,
+        b03 = a01 * a12 - a02 * a11,
+        b04 = a01 * a13 - a03 * a11,
+        b05 = a02 * a13 - a03 * a12,
+        b06 = a20 * a31 - a21 * a30,
+        b07 = a20 * a32 - a22 * a30,
+        b08 = a20 * a33 - a23 * a30,
+        b09 = a21 * a32 - a22 * a31,
+        b10 = a21 * a33 - a23 * a31,
+        b11 = a22 * a33 - a23 * a32,
+
+        // Calculate the determinant
+        det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+
+    if (!det) { 
+        return null; 
+    }
+    det = 1.0 / det;
+
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+
+    return out;
+};
+
+/**
+ * Calculates the adjugate of a mat4
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the source matrix
+ * @returns {mat4} out
+ */
+mat4.adjoint = function(out, a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+        a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+        a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+        a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+    out[0]  =  (a11 * (a22 * a33 - a23 * a32) - a21 * (a12 * a33 - a13 * a32) + a31 * (a12 * a23 - a13 * a22));
+    out[1]  = -(a01 * (a22 * a33 - a23 * a32) - a21 * (a02 * a33 - a03 * a32) + a31 * (a02 * a23 - a03 * a22));
+    out[2]  =  (a01 * (a12 * a33 - a13 * a32) - a11 * (a02 * a33 - a03 * a32) + a31 * (a02 * a13 - a03 * a12));
+    out[3]  = -(a01 * (a12 * a23 - a13 * a22) - a11 * (a02 * a23 - a03 * a22) + a21 * (a02 * a13 - a03 * a12));
+    out[4]  = -(a10 * (a22 * a33 - a23 * a32) - a20 * (a12 * a33 - a13 * a32) + a30 * (a12 * a23 - a13 * a22));
+    out[5]  =  (a00 * (a22 * a33 - a23 * a32) - a20 * (a02 * a33 - a03 * a32) + a30 * (a02 * a23 - a03 * a22));
+    out[6]  = -(a00 * (a12 * a33 - a13 * a32) - a10 * (a02 * a33 - a03 * a32) + a30 * (a02 * a13 - a03 * a12));
+    out[7]  =  (a00 * (a12 * a23 - a13 * a22) - a10 * (a02 * a23 - a03 * a22) + a20 * (a02 * a13 - a03 * a12));
+    out[8]  =  (a10 * (a21 * a33 - a23 * a31) - a20 * (a11 * a33 - a13 * a31) + a30 * (a11 * a23 - a13 * a21));
+    out[9]  = -(a00 * (a21 * a33 - a23 * a31) - a20 * (a01 * a33 - a03 * a31) + a30 * (a01 * a23 - a03 * a21));
+    out[10] =  (a00 * (a11 * a33 - a13 * a31) - a10 * (a01 * a33 - a03 * a31) + a30 * (a01 * a13 - a03 * a11));
+    out[11] = -(a00 * (a11 * a23 - a13 * a21) - a10 * (a01 * a23 - a03 * a21) + a20 * (a01 * a13 - a03 * a11));
+    out[12] = -(a10 * (a21 * a32 - a22 * a31) - a20 * (a11 * a32 - a12 * a31) + a30 * (a11 * a22 - a12 * a21));
+    out[13] =  (a00 * (a21 * a32 - a22 * a31) - a20 * (a01 * a32 - a02 * a31) + a30 * (a01 * a22 - a02 * a21));
+    out[14] = -(a00 * (a11 * a32 - a12 * a31) - a10 * (a01 * a32 - a02 * a31) + a30 * (a01 * a12 - a02 * a11));
+    out[15] =  (a00 * (a11 * a22 - a12 * a21) - a10 * (a01 * a22 - a02 * a21) + a20 * (a01 * a12 - a02 * a11));
+    return out;
+};
+
+/**
+ * Calculates the determinant of a mat4
+ *
+ * @param {mat4} a the source matrix
+ * @returns {Number} determinant of a
+ */
+mat4.determinant = function (a) {
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+        a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+        a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+        a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15],
+
+        b00 = a00 * a11 - a01 * a10,
+        b01 = a00 * a12 - a02 * a10,
+        b02 = a00 * a13 - a03 * a10,
+        b03 = a01 * a12 - a02 * a11,
+        b04 = a01 * a13 - a03 * a11,
+        b05 = a02 * a13 - a03 * a12,
+        b06 = a20 * a31 - a21 * a30,
+        b07 = a20 * a32 - a22 * a30,
+        b08 = a20 * a33 - a23 * a30,
+        b09 = a21 * a32 - a22 * a31,
+        b10 = a21 * a33 - a23 * a31,
+        b11 = a22 * a33 - a23 * a32;
+
+    // Calculate the determinant
+    return b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+};
+
+/**
+ * Multiplies two mat4's
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the first operand
+ * @param {mat4} b the second operand
+ * @returns {mat4} out
+ */
+mat4.multiply = function (out, a, b) {
+    var a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3],
+        a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7],
+        a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11],
+        a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+    // Cache only the current line of the second matrix
+    var b0  = b[0], b1 = b[1], b2 = b[2], b3 = b[3];  
+    out[0] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[1] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[2] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[3] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+
+    b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+    out[4] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[5] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[6] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[7] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+
+    b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+    out[8] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[9] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[10] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[11] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+
+    b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+    out[12] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[13] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    return out;
+};
+
+/**
+ * Alias for {@link mat4.multiply}
+ * @function
+ */
+mat4.mul = mat4.multiply;
+
+/**
+ * Translate a mat4 by the given vector
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to translate
+ * @param {vec3} v vector to translate by
+ * @returns {mat4} out
+ */
+mat4.translate = function (out, a, v) {
+    var x = v[0], y = v[1], z = v[2],
+        a00, a01, a02, a03,
+        a10, a11, a12, a13,
+        a20, a21, a22, a23;
+
+    if (a === out) {
+        out[12] = a[0] * x + a[4] * y + a[8] * z + a[12];
+        out[13] = a[1] * x + a[5] * y + a[9] * z + a[13];
+        out[14] = a[2] * x + a[6] * y + a[10] * z + a[14];
+        out[15] = a[3] * x + a[7] * y + a[11] * z + a[15];
+    } else {
+        a00 = a[0]; a01 = a[1]; a02 = a[2]; a03 = a[3];
+        a10 = a[4]; a11 = a[5]; a12 = a[6]; a13 = a[7];
+        a20 = a[8]; a21 = a[9]; a22 = a[10]; a23 = a[11];
+
+        out[0] = a00; out[1] = a01; out[2] = a02; out[3] = a03;
+        out[4] = a10; out[5] = a11; out[6] = a12; out[7] = a13;
+        out[8] = a20; out[9] = a21; out[10] = a22; out[11] = a23;
+
+        out[12] = a00 * x + a10 * y + a20 * z + a[12];
+        out[13] = a01 * x + a11 * y + a21 * z + a[13];
+        out[14] = a02 * x + a12 * y + a22 * z + a[14];
+        out[15] = a03 * x + a13 * y + a23 * z + a[15];
     }
 
-    // Bind or set our tabWillChange callback
-    this.controllerWillChange = options.controllerWillChange || function(controller) {};
-    this.controllerChanged = options.controllerChanged || function(controller) {};
+    return out;
+};
 
-    // Try to select the first controller if we have one
-    this.setSelectedController(0);
-  },
-  // Start listening for events on our tab bar
-  _bindEvents: function() {
-    var _this = this;
+/**
+ * Scales the mat4 by the dimensions in the given vec3
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to scale
+ * @param {vec3} v the vec3 to scale the matrix by
+ * @returns {mat4} out
+ **/
+mat4.scale = function(out, a, v) {
+    var x = v[0], y = v[1], z = v[2];
 
-    this.tabBar.tryTabSelect = function(index) {
-      _this.setSelectedController(index);
+    out[0] = a[0] * x;
+    out[1] = a[1] * x;
+    out[2] = a[2] * x;
+    out[3] = a[3] * x;
+    out[4] = a[4] * y;
+    out[5] = a[5] * y;
+    out[6] = a[6] * y;
+    out[7] = a[7] * y;
+    out[8] = a[8] * z;
+    out[9] = a[9] * z;
+    out[10] = a[10] * z;
+    out[11] = a[11] * z;
+    out[12] = a[12];
+    out[13] = a[13];
+    out[14] = a[14];
+    out[15] = a[15];
+    return out;
+};
+
+/**
+ * Rotates a mat4 by the given angle
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @param {vec3} axis the axis to rotate around
+ * @returns {mat4} out
+ */
+mat4.rotate = function (out, a, rad, axis) {
+    var x = axis[0], y = axis[1], z = axis[2],
+        len = Math.sqrt(x * x + y * y + z * z),
+        s, c, t,
+        a00, a01, a02, a03,
+        a10, a11, a12, a13,
+        a20, a21, a22, a23,
+        b00, b01, b02,
+        b10, b11, b12,
+        b20, b21, b22;
+
+    if (Math.abs(len) < GLMAT_EPSILON) { return null; }
+    
+    len = 1 / len;
+    x *= len;
+    y *= len;
+    z *= len;
+
+    s = Math.sin(rad);
+    c = Math.cos(rad);
+    t = 1 - c;
+
+    a00 = a[0]; a01 = a[1]; a02 = a[2]; a03 = a[3];
+    a10 = a[4]; a11 = a[5]; a12 = a[6]; a13 = a[7];
+    a20 = a[8]; a21 = a[9]; a22 = a[10]; a23 = a[11];
+
+    // Construct the elements of the rotation matrix
+    b00 = x * x * t + c; b01 = y * x * t + z * s; b02 = z * x * t - y * s;
+    b10 = x * y * t - z * s; b11 = y * y * t + c; b12 = z * y * t + x * s;
+    b20 = x * z * t + y * s; b21 = y * z * t - x * s; b22 = z * z * t + c;
+
+    // Perform rotation-specific matrix multiplication
+    out[0] = a00 * b00 + a10 * b01 + a20 * b02;
+    out[1] = a01 * b00 + a11 * b01 + a21 * b02;
+    out[2] = a02 * b00 + a12 * b01 + a22 * b02;
+    out[3] = a03 * b00 + a13 * b01 + a23 * b02;
+    out[4] = a00 * b10 + a10 * b11 + a20 * b12;
+    out[5] = a01 * b10 + a11 * b11 + a21 * b12;
+    out[6] = a02 * b10 + a12 * b11 + a22 * b12;
+    out[7] = a03 * b10 + a13 * b11 + a23 * b12;
+    out[8] = a00 * b20 + a10 * b21 + a20 * b22;
+    out[9] = a01 * b20 + a11 * b21 + a21 * b22;
+    out[10] = a02 * b20 + a12 * b21 + a22 * b22;
+    out[11] = a03 * b20 + a13 * b21 + a23 * b22;
+
+    if (a !== out) { // If the source and destination differ, copy the unchanged last row
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+    return out;
+};
+
+/**
+ * Rotates a matrix by the given angle around the X axis
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat4} out
+ */
+mat4.rotateX = function (out, a, rad) {
+    var s = Math.sin(rad),
+        c = Math.cos(rad),
+        a10 = a[4],
+        a11 = a[5],
+        a12 = a[6],
+        a13 = a[7],
+        a20 = a[8],
+        a21 = a[9],
+        a22 = a[10],
+        a23 = a[11];
+
+    if (a !== out) { // If the source and destination differ, copy the unchanged rows
+        out[0]  = a[0];
+        out[1]  = a[1];
+        out[2]  = a[2];
+        out[3]  = a[3];
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+
+    // Perform axis-specific matrix multiplication
+    out[4] = a10 * c + a20 * s;
+    out[5] = a11 * c + a21 * s;
+    out[6] = a12 * c + a22 * s;
+    out[7] = a13 * c + a23 * s;
+    out[8] = a20 * c - a10 * s;
+    out[9] = a21 * c - a11 * s;
+    out[10] = a22 * c - a12 * s;
+    out[11] = a23 * c - a13 * s;
+    return out;
+};
+
+/**
+ * Rotates a matrix by the given angle around the Y axis
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat4} out
+ */
+mat4.rotateY = function (out, a, rad) {
+    var s = Math.sin(rad),
+        c = Math.cos(rad),
+        a00 = a[0],
+        a01 = a[1],
+        a02 = a[2],
+        a03 = a[3],
+        a20 = a[8],
+        a21 = a[9],
+        a22 = a[10],
+        a23 = a[11];
+
+    if (a !== out) { // If the source and destination differ, copy the unchanged rows
+        out[4]  = a[4];
+        out[5]  = a[5];
+        out[6]  = a[6];
+        out[7]  = a[7];
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+
+    // Perform axis-specific matrix multiplication
+    out[0] = a00 * c - a20 * s;
+    out[1] = a01 * c - a21 * s;
+    out[2] = a02 * c - a22 * s;
+    out[3] = a03 * c - a23 * s;
+    out[8] = a00 * s + a20 * c;
+    out[9] = a01 * s + a21 * c;
+    out[10] = a02 * s + a22 * c;
+    out[11] = a03 * s + a23 * c;
+    return out;
+};
+
+/**
+ * Rotates a matrix by the given angle around the Z axis
+ *
+ * @param {mat4} out the receiving matrix
+ * @param {mat4} a the matrix to rotate
+ * @param {Number} rad the angle to rotate the matrix by
+ * @returns {mat4} out
+ */
+mat4.rotateZ = function (out, a, rad) {
+    var s = Math.sin(rad),
+        c = Math.cos(rad),
+        a00 = a[0],
+        a01 = a[1],
+        a02 = a[2],
+        a03 = a[3],
+        a10 = a[4],
+        a11 = a[5],
+        a12 = a[6],
+        a13 = a[7];
+
+    if (a !== out) { // If the source and destination differ, copy the unchanged last row
+        out[8]  = a[8];
+        out[9]  = a[9];
+        out[10] = a[10];
+        out[11] = a[11];
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+
+    // Perform axis-specific matrix multiplication
+    out[0] = a00 * c + a10 * s;
+    out[1] = a01 * c + a11 * s;
+    out[2] = a02 * c + a12 * s;
+    out[3] = a03 * c + a13 * s;
+    out[4] = a10 * c - a00 * s;
+    out[5] = a11 * c - a01 * s;
+    out[6] = a12 * c - a02 * s;
+    out[7] = a13 * c - a03 * s;
+    return out;
+};
+
+/**
+ * Creates a matrix from a quaternion rotation and vector translation
+ * This is equivalent to (but much faster than):
+ *
+ *     mat4.identity(dest);
+ *     mat4.translate(dest, vec);
+ *     var quatMat = mat4.create();
+ *     quat4.toMat4(quat, quatMat);
+ *     mat4.multiply(dest, quatMat);
+ *
+ * @param {mat4} out mat4 receiving operation result
+ * @param {quat4} q Rotation quaternion
+ * @param {vec3} v Translation vector
+ * @returns {mat4} out
+ */
+mat4.fromRotationTranslation = function (out, q, v) {
+    // Quaternion math
+    var x = q[0], y = q[1], z = q[2], w = q[3],
+        x2 = x + x,
+        y2 = y + y,
+        z2 = z + z,
+
+        xx = x * x2,
+        xy = x * y2,
+        xz = x * z2,
+        yy = y * y2,
+        yz = y * z2,
+        zz = z * z2,
+        wx = w * x2,
+        wy = w * y2,
+        wz = w * z2;
+
+    out[0] = 1 - (yy + zz);
+    out[1] = xy + wz;
+    out[2] = xz - wy;
+    out[3] = 0;
+    out[4] = xy - wz;
+    out[5] = 1 - (xx + zz);
+    out[6] = yz + wx;
+    out[7] = 0;
+    out[8] = xz + wy;
+    out[9] = yz - wx;
+    out[10] = 1 - (xx + yy);
+    out[11] = 0;
+    out[12] = v[0];
+    out[13] = v[1];
+    out[14] = v[2];
+    out[15] = 1;
+    
+    return out;
+};
+
+mat4.fromQuat = function (out, q) {
+    var x = q[0], y = q[1], z = q[2], w = q[3],
+        x2 = x + x,
+        y2 = y + y,
+        z2 = z + z,
+
+        xx = x * x2,
+        yx = y * x2,
+        yy = y * y2,
+        zx = z * x2,
+        zy = z * y2,
+        zz = z * z2,
+        wx = w * x2,
+        wy = w * y2,
+        wz = w * z2;
+
+    out[0] = 1 - yy - zz;
+    out[1] = yx + wz;
+    out[2] = zx - wy;
+    out[3] = 0;
+
+    out[4] = yx - wz;
+    out[5] = 1 - xx - zz;
+    out[6] = zy + wx;
+    out[7] = 0;
+
+    out[8] = zx + wy;
+    out[9] = zy - wx;
+    out[10] = 1 - xx - yy;
+    out[11] = 0;
+
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = 0;
+    out[15] = 1;
+
+    return out;
+};
+
+/**
+ * Generates a frustum matrix with the given bounds
+ *
+ * @param {mat4} out mat4 frustum matrix will be written into
+ * @param {Number} left Left bound of the frustum
+ * @param {Number} right Right bound of the frustum
+ * @param {Number} bottom Bottom bound of the frustum
+ * @param {Number} top Top bound of the frustum
+ * @param {Number} near Near bound of the frustum
+ * @param {Number} far Far bound of the frustum
+ * @returns {mat4} out
+ */
+mat4.frustum = function (out, left, right, bottom, top, near, far) {
+    var rl = 1 / (right - left),
+        tb = 1 / (top - bottom),
+        nf = 1 / (near - far);
+    out[0] = (near * 2) * rl;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = (near * 2) * tb;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = (right + left) * rl;
+    out[9] = (top + bottom) * tb;
+    out[10] = (far + near) * nf;
+    out[11] = -1;
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = (far * near * 2) * nf;
+    out[15] = 0;
+    return out;
+};
+
+/**
+ * Generates a perspective projection matrix with the given bounds
+ *
+ * @param {mat4} out mat4 frustum matrix will be written into
+ * @param {number} fovy Vertical field of view in radians
+ * @param {number} aspect Aspect ratio. typically viewport width/height
+ * @param {number} near Near bound of the frustum
+ * @param {number} far Far bound of the frustum
+ * @returns {mat4} out
+ */
+mat4.perspective = function (out, fovy, aspect, near, far) {
+    var f = 1.0 / Math.tan(fovy / 2),
+        nf = 1 / (near - far);
+    out[0] = f / aspect;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = f;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = (far + near) * nf;
+    out[11] = -1;
+    out[12] = 0;
+    out[13] = 0;
+    out[14] = (2 * far * near) * nf;
+    out[15] = 0;
+    return out;
+};
+
+/**
+ * Generates a orthogonal projection matrix with the given bounds
+ *
+ * @param {mat4} out mat4 frustum matrix will be written into
+ * @param {number} left Left bound of the frustum
+ * @param {number} right Right bound of the frustum
+ * @param {number} bottom Bottom bound of the frustum
+ * @param {number} top Top bound of the frustum
+ * @param {number} near Near bound of the frustum
+ * @param {number} far Far bound of the frustum
+ * @returns {mat4} out
+ */
+mat4.ortho = function (out, left, right, bottom, top, near, far) {
+    var lr = 1 / (left - right),
+        bt = 1 / (bottom - top),
+        nf = 1 / (near - far);
+    out[0] = -2 * lr;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = -2 * bt;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = 2 * nf;
+    out[11] = 0;
+    out[12] = (left + right) * lr;
+    out[13] = (top + bottom) * bt;
+    out[14] = (far + near) * nf;
+    out[15] = 1;
+    return out;
+};
+
+/**
+ * Generates a look-at matrix with the given eye position, focal point, and up axis
+ *
+ * @param {mat4} out mat4 frustum matrix will be written into
+ * @param {vec3} eye Position of the viewer
+ * @param {vec3} center Point the viewer is looking at
+ * @param {vec3} up vec3 pointing up
+ * @returns {mat4} out
+ */
+mat4.lookAt = function (out, eye, center, up) {
+    var x0, x1, x2, y0, y1, y2, z0, z1, z2, len,
+        eyex = eye[0],
+        eyey = eye[1],
+        eyez = eye[2],
+        upx = up[0],
+        upy = up[1],
+        upz = up[2],
+        centerx = center[0],
+        centery = center[1],
+        centerz = center[2];
+
+    if (Math.abs(eyex - centerx) < GLMAT_EPSILON &&
+        Math.abs(eyey - centery) < GLMAT_EPSILON &&
+        Math.abs(eyez - centerz) < GLMAT_EPSILON) {
+        return mat4.identity(out);
+    }
+
+    z0 = eyex - centerx;
+    z1 = eyey - centery;
+    z2 = eyez - centerz;
+
+    len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
+    z0 *= len;
+    z1 *= len;
+    z2 *= len;
+
+    x0 = upy * z2 - upz * z1;
+    x1 = upz * z0 - upx * z2;
+    x2 = upx * z1 - upy * z0;
+    len = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2);
+    if (!len) {
+        x0 = 0;
+        x1 = 0;
+        x2 = 0;
+    } else {
+        len = 1 / len;
+        x0 *= len;
+        x1 *= len;
+        x2 *= len;
+    }
+
+    y0 = z1 * x2 - z2 * x1;
+    y1 = z2 * x0 - z0 * x2;
+    y2 = z0 * x1 - z1 * x0;
+
+    len = Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2);
+    if (!len) {
+        y0 = 0;
+        y1 = 0;
+        y2 = 0;
+    } else {
+        len = 1 / len;
+        y0 *= len;
+        y1 *= len;
+        y2 *= len;
+    }
+
+    out[0] = x0;
+    out[1] = y0;
+    out[2] = z0;
+    out[3] = 0;
+    out[4] = x1;
+    out[5] = y1;
+    out[6] = z1;
+    out[7] = 0;
+    out[8] = x2;
+    out[9] = y2;
+    out[10] = z2;
+    out[11] = 0;
+    out[12] = -(x0 * eyex + x1 * eyey + x2 * eyez);
+    out[13] = -(y0 * eyex + y1 * eyey + y2 * eyez);
+    out[14] = -(z0 * eyex + z1 * eyey + z2 * eyez);
+    out[15] = 1;
+
+    return out;
+};
+
+/**
+ * Returns a string representation of a mat4
+ *
+ * @param {mat4} mat matrix to represent as a string
+ * @returns {String} string representation of the matrix
+ */
+mat4.str = function (a) {
+    return 'mat4(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ', ' +
+                    a[4] + ', ' + a[5] + ', ' + a[6] + ', ' + a[7] + ', ' +
+                    a[8] + ', ' + a[9] + ', ' + a[10] + ', ' + a[11] + ', ' + 
+                    a[12] + ', ' + a[13] + ', ' + a[14] + ', ' + a[15] + ')';
+};
+
+/**
+ * Returns Frobenius norm of a mat4
+ *
+ * @param {mat4} a the matrix to calculate Frobenius norm of
+ * @returns {Number} Frobenius norm
+ */
+mat4.frob = function (a) {
+    return(Math.sqrt(Math.pow(a[0], 2) + Math.pow(a[1], 2) + Math.pow(a[2], 2) + Math.pow(a[3], 2) + Math.pow(a[4], 2) + Math.pow(a[5], 2) + Math.pow(a[6], 2) + Math.pow(a[6], 2) + Math.pow(a[7], 2) + Math.pow(a[8], 2) + Math.pow(a[9], 2) + Math.pow(a[10], 2) + Math.pow(a[11], 2) + Math.pow(a[12], 2) + Math.pow(a[13], 2) + Math.pow(a[14], 2) + Math.pow(a[15], 2) ))
+};
+
+
+if(typeof(exports) !== 'undefined') {
+    exports.mat4 = mat4;
+}
+;
+/* Copyright (c) 2013, Brandon Jones, Colin MacKenzie IV. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation 
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
+
+/**
+ * @class Quaternion
+ * @name quat
+ */
+
+var quat = {};
+
+/**
+ * Creates a new identity quat
+ *
+ * @returns {quat} a new quaternion
+ */
+quat.create = function() {
+    var out = new GLMAT_ARRAY_TYPE(4);
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
+};
+
+/**
+ * Sets a quaternion to represent the shortest rotation from one
+ * vector to another.
+ *
+ * Both vectors are assumed to be unit length.
+ *
+ * @param {quat} out the receiving quaternion.
+ * @param {vec3} a the initial vector
+ * @param {vec3} b the destination vector
+ * @returns {quat} out
+ */
+quat.rotationTo = (function() {
+    var tmpvec3 = vec3.create();
+    var xUnitVec3 = vec3.fromValues(1,0,0);
+    var yUnitVec3 = vec3.fromValues(0,1,0);
+
+    return function(out, a, b) {
+        var dot = vec3.dot(a, b);
+        if (dot < -0.999999) {
+            vec3.cross(tmpvec3, xUnitVec3, a);
+            if (vec3.length(tmpvec3) < 0.000001)
+                vec3.cross(tmpvec3, yUnitVec3, a);
+            vec3.normalize(tmpvec3, tmpvec3);
+            quat.setAxisAngle(out, tmpvec3, Math.PI);
+            return out;
+        } else if (dot > 0.999999) {
+            out[0] = 0;
+            out[1] = 0;
+            out[2] = 0;
+            out[3] = 1;
+            return out;
+        } else {
+            vec3.cross(tmpvec3, a, b);
+            out[0] = tmpvec3[0];
+            out[1] = tmpvec3[1];
+            out[2] = tmpvec3[2];
+            out[3] = 1 + dot;
+            return quat.normalize(out, out);
+        }
     };
-  },
+})();
+
+/**
+ * Sets the specified quaternion with values corresponding to the given
+ * axes. Each axis is a vec3 and is expected to be unit length and
+ * perpendicular to all other specified axes.
+ *
+ * @param {vec3} view  the vector representing the viewing direction
+ * @param {vec3} right the vector representing the local "right" direction
+ * @param {vec3} up    the vector representing the local "up" direction
+ * @returns {quat} out
+ */
+quat.setAxes = (function() {
+    var matr = mat3.create();
+
+    return function(out, view, right, up) {
+        matr[0] = right[0];
+        matr[3] = right[1];
+        matr[6] = right[2];
+
+        matr[1] = up[0];
+        matr[4] = up[1];
+        matr[7] = up[2];
+
+        matr[2] = -view[0];
+        matr[5] = -view[1];
+        matr[8] = -view[2];
+
+        return quat.normalize(out, quat.fromMat3(out, matr));
+    };
+})();
+
+/**
+ * Creates a new quat initialized with values from an existing quaternion
+ *
+ * @param {quat} a quaternion to clone
+ * @returns {quat} a new quaternion
+ * @function
+ */
+quat.clone = vec4.clone;
+
+/**
+ * Creates a new quat initialized with the given values
+ *
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @param {Number} w W component
+ * @returns {quat} a new quaternion
+ * @function
+ */
+quat.fromValues = vec4.fromValues;
+
+/**
+ * Copy the values from one quat to another
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a the source quaternion
+ * @returns {quat} out
+ * @function
+ */
+quat.copy = vec4.copy;
+
+/**
+ * Set the components of a quat to the given values
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {Number} x X component
+ * @param {Number} y Y component
+ * @param {Number} z Z component
+ * @param {Number} w W component
+ * @returns {quat} out
+ * @function
+ */
+quat.set = vec4.set;
+
+/**
+ * Set a quat to the identity quaternion
+ *
+ * @param {quat} out the receiving quaternion
+ * @returns {quat} out
+ */
+quat.identity = function(out) {
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
+};
+
+/**
+ * Sets a quat from the given angle and rotation axis,
+ * then returns it.
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {vec3} axis the axis around which to rotate
+ * @param {Number} rad the angle in radians
+ * @returns {quat} out
+ **/
+quat.setAxisAngle = function(out, axis, rad) {
+    rad = rad * 0.5;
+    var s = Math.sin(rad);
+    out[0] = s * axis[0];
+    out[1] = s * axis[1];
+    out[2] = s * axis[2];
+    out[3] = Math.cos(rad);
+    return out;
+};
+
+/**
+ * Adds two quat's
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a the first operand
+ * @param {quat} b the second operand
+ * @returns {quat} out
+ * @function
+ */
+quat.add = vec4.add;
+
+/**
+ * Multiplies two quat's
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a the first operand
+ * @param {quat} b the second operand
+ * @returns {quat} out
+ */
+quat.multiply = function(out, a, b) {
+    var ax = a[0], ay = a[1], az = a[2], aw = a[3],
+        bx = b[0], by = b[1], bz = b[2], bw = b[3];
+
+    out[0] = ax * bw + aw * bx + ay * bz - az * by;
+    out[1] = ay * bw + aw * by + az * bx - ax * bz;
+    out[2] = az * bw + aw * bz + ax * by - ay * bx;
+    out[3] = aw * bw - ax * bx - ay * by - az * bz;
+    return out;
+};
+
+/**
+ * Alias for {@link quat.multiply}
+ * @function
+ */
+quat.mul = quat.multiply;
+
+/**
+ * Scales a quat by a scalar number
+ *
+ * @param {quat} out the receiving vector
+ * @param {quat} a the vector to scale
+ * @param {Number} b amount to scale the vector by
+ * @returns {quat} out
+ * @function
+ */
+quat.scale = vec4.scale;
+
+/**
+ * Rotates a quaternion by the given angle about the X axis
+ *
+ * @param {quat} out quat receiving operation result
+ * @param {quat} a quat to rotate
+ * @param {number} rad angle (in radians) to rotate
+ * @returns {quat} out
+ */
+quat.rotateX = function (out, a, rad) {
+    rad *= 0.5; 
+
+    var ax = a[0], ay = a[1], az = a[2], aw = a[3],
+        bx = Math.sin(rad), bw = Math.cos(rad);
+
+    out[0] = ax * bw + aw * bx;
+    out[1] = ay * bw + az * bx;
+    out[2] = az * bw - ay * bx;
+    out[3] = aw * bw - ax * bx;
+    return out;
+};
+
+/**
+ * Rotates a quaternion by the given angle about the Y axis
+ *
+ * @param {quat} out quat receiving operation result
+ * @param {quat} a quat to rotate
+ * @param {number} rad angle (in radians) to rotate
+ * @returns {quat} out
+ */
+quat.rotateY = function (out, a, rad) {
+    rad *= 0.5; 
+
+    var ax = a[0], ay = a[1], az = a[2], aw = a[3],
+        by = Math.sin(rad), bw = Math.cos(rad);
+
+    out[0] = ax * bw - az * by;
+    out[1] = ay * bw + aw * by;
+    out[2] = az * bw + ax * by;
+    out[3] = aw * bw - ay * by;
+    return out;
+};
+
+/**
+ * Rotates a quaternion by the given angle about the Z axis
+ *
+ * @param {quat} out quat receiving operation result
+ * @param {quat} a quat to rotate
+ * @param {number} rad angle (in radians) to rotate
+ * @returns {quat} out
+ */
+quat.rotateZ = function (out, a, rad) {
+    rad *= 0.5; 
+
+    var ax = a[0], ay = a[1], az = a[2], aw = a[3],
+        bz = Math.sin(rad), bw = Math.cos(rad);
+
+    out[0] = ax * bw + ay * bz;
+    out[1] = ay * bw - ax * bz;
+    out[2] = az * bw + aw * bz;
+    out[3] = aw * bw - az * bz;
+    return out;
+};
+
+/**
+ * Calculates the W component of a quat from the X, Y, and Z components.
+ * Assumes that quaternion is 1 unit in length.
+ * Any existing W component will be ignored.
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a quat to calculate W component of
+ * @returns {quat} out
+ */
+quat.calculateW = function (out, a) {
+    var x = a[0], y = a[1], z = a[2];
+
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    out[3] = -Math.sqrt(Math.abs(1.0 - x * x - y * y - z * z));
+    return out;
+};
+
+/**
+ * Calculates the dot product of two quat's
+ *
+ * @param {quat} a the first operand
+ * @param {quat} b the second operand
+ * @returns {Number} dot product of a and b
+ * @function
+ */
+quat.dot = vec4.dot;
+
+/**
+ * Performs a linear interpolation between two quat's
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a the first operand
+ * @param {quat} b the second operand
+ * @param {Number} t interpolation amount between the two inputs
+ * @returns {quat} out
+ * @function
+ */
+quat.lerp = vec4.lerp;
+
+/**
+ * Performs a spherical linear interpolation between two quat
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a the first operand
+ * @param {quat} b the second operand
+ * @param {Number} t interpolation amount between the two inputs
+ * @returns {quat} out
+ */
+quat.slerp = function (out, a, b, t) {
+    // benchmarks:
+    //    http://jsperf.com/quaternion-slerp-implementations
+
+    var ax = a[0], ay = a[1], az = a[2], aw = a[3],
+        bx = b[0], by = b[1], bz = b[2], bw = b[3];
+
+    var        omega, cosom, sinom, scale0, scale1;
+
+    // calc cosine
+    cosom = ax * bx + ay * by + az * bz + aw * bw;
+    // adjust signs (if necessary)
+    if ( cosom < 0.0 ) {
+        cosom = -cosom;
+        bx = - bx;
+        by = - by;
+        bz = - bz;
+        bw = - bw;
+    }
+    // calculate coefficients
+    if ( (1.0 - cosom) > 0.000001 ) {
+        // standard case (slerp)
+        omega  = Math.acos(cosom);
+        sinom  = Math.sin(omega);
+        scale0 = Math.sin((1.0 - t) * omega) / sinom;
+        scale1 = Math.sin(t * omega) / sinom;
+    } else {        
+        // "from" and "to" quaternions are very close 
+        //  ... so we can do a linear interpolation
+        scale0 = 1.0 - t;
+        scale1 = t;
+    }
+    // calculate final values
+    out[0] = scale0 * ax + scale1 * bx;
+    out[1] = scale0 * ay + scale1 * by;
+    out[2] = scale0 * az + scale1 * bz;
+    out[3] = scale0 * aw + scale1 * bw;
+    
+    return out;
+};
+
+/**
+ * Calculates the inverse of a quat
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a quat to calculate inverse of
+ * @returns {quat} out
+ */
+quat.invert = function(out, a) {
+    var a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3],
+        dot = a0*a0 + a1*a1 + a2*a2 + a3*a3,
+        invDot = dot ? 1.0/dot : 0;
+    
+    // TODO: Would be faster to return [0,0,0,0] immediately if dot == 0
+
+    out[0] = -a0*invDot;
+    out[1] = -a1*invDot;
+    out[2] = -a2*invDot;
+    out[3] = a3*invDot;
+    return out;
+};
+
+/**
+ * Calculates the conjugate of a quat
+ * If the quaternion is normalized, this function is faster than quat.inverse and produces the same result.
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a quat to calculate conjugate of
+ * @returns {quat} out
+ */
+quat.conjugate = function (out, a) {
+    out[0] = -a[0];
+    out[1] = -a[1];
+    out[2] = -a[2];
+    out[3] = a[3];
+    return out;
+};
+
+/**
+ * Calculates the length of a quat
+ *
+ * @param {quat} a vector to calculate length of
+ * @returns {Number} length of a
+ * @function
+ */
+quat.length = vec4.length;
+
+/**
+ * Alias for {@link quat.length}
+ * @function
+ */
+quat.len = quat.length;
+
+/**
+ * Calculates the squared length of a quat
+ *
+ * @param {quat} a vector to calculate squared length of
+ * @returns {Number} squared length of a
+ * @function
+ */
+quat.squaredLength = vec4.squaredLength;
+
+/**
+ * Alias for {@link quat.squaredLength}
+ * @function
+ */
+quat.sqrLen = quat.squaredLength;
+
+/**
+ * Normalize a quat
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {quat} a quaternion to normalize
+ * @returns {quat} out
+ * @function
+ */
+quat.normalize = vec4.normalize;
+
+/**
+ * Creates a quaternion from the given 3x3 rotation matrix.
+ *
+ * NOTE: The resultant quaternion is not normalized, so you should be sure
+ * to renormalize the quaternion yourself where necessary.
+ *
+ * @param {quat} out the receiving quaternion
+ * @param {mat3} m rotation matrix
+ * @returns {quat} out
+ * @function
+ */
+quat.fromMat3 = function(out, m) {
+    // Algorithm in Ken Shoemake's article in 1987 SIGGRAPH course notes
+    // article "Quaternion Calculus and Fast Animation".
+    var fTrace = m[0] + m[4] + m[8];
+    var fRoot;
+
+    if ( fTrace > 0.0 ) {
+        // |w| > 1/2, may as well choose w > 1/2
+        fRoot = Math.sqrt(fTrace + 1.0);  // 2w
+        out[3] = 0.5 * fRoot;
+        fRoot = 0.5/fRoot;  // 1/(4w)
+        out[0] = (m[7]-m[5])*fRoot;
+        out[1] = (m[2]-m[6])*fRoot;
+        out[2] = (m[3]-m[1])*fRoot;
+    } else {
+        // |w| <= 1/2
+        var i = 0;
+        if ( m[4] > m[0] )
+          i = 1;
+        if ( m[8] > m[i*3+i] )
+          i = 2;
+        var j = (i+1)%3;
+        var k = (i+2)%3;
+        
+        fRoot = Math.sqrt(m[i*3+i]-m[j*3+j]-m[k*3+k] + 1.0);
+        out[i] = 0.5 * fRoot;
+        fRoot = 0.5 / fRoot;
+        out[3] = (m[k*3+j] - m[j*3+k]) * fRoot;
+        out[j] = (m[j*3+i] + m[i*3+j]) * fRoot;
+        out[k] = (m[k*3+i] + m[i*3+k]) * fRoot;
+    }
+    
+    return out;
+};
+
+/**
+ * Returns a string representation of a quatenion
+ *
+ * @param {quat} vec vector to represent as a string
+ * @returns {String} string representation of the vector
+ */
+quat.str = function (a) {
+    return 'quat(' + a[0] + ', ' + a[1] + ', ' + a[2] + ', ' + a[3] + ')';
+};
+
+if(typeof(exports) !== 'undefined') {
+    exports.quat = quat;
+}
+;
 
 
-  selectController: function(index) {
-    var shouldChange = true;
 
-    // Check if we should switch to this tab. This lets the app
-    // cancel tab switches if the context isn't right, for example.
-    if(this.controllerWillChange) {
-      if(this.controllerWillChange(this.controllers[index], index) === false) {
-        shouldChange = false;
+
+
+
+
+
+
+
+
+
+
+  })(shim.exports);
+})(this);
+
+(function(window) {
+
+  // Namespace
+  ionic.Animation = ionic.Animation || {};
+
+
+  ionic.Animation.TimingFn = {
+    'linear': function(duration) {
+      return function(t) {
+        return ionic.Animation.Bezier.linear(t, duration);
+      }
+    },
+    'ease': function(duration) {
+      return function(t) {
+        return ionic.Animation.Bezier.ease(t, duration);
+      }
+    },
+    'ease-in': function(duration) {
+      return function(t) {
+        return ionic.Animation.Bezier.easeIn(t, duration);
+      }
+    },
+    'ease-out': function(duration) {
+      return function(t) {
+        return ionic.Animation.Bezier.easeOut(t, duration);
+      }
+    },
+    'ease-in-out': function(duration) {
+      return function(t) {
+        return ionic.Animation.Bezier.easeInOut(t, duration);
       }
     }
-
-    if(shouldChange) {
-      this.setSelectedController(index);
-    }
-  },
-
-  // Force the selection of a controller at the given index
-  setSelectedController: function(index) {
-    if(index >= this.controllers.length) {
-      return;
-    }
-    var lastController = this.selectedController;
-    var lastIndex = this.selectedIndex;
-
-    this.selectedController = this.controllers[index];
-    this.selectedIndex = index;
-
-    this._showController(index);
-    this.tabBar.setSelectedItem(index);
-
-    this.controllerChanged && this.controllerChanged(lastController, lastIndex, this.selectedController, this.selectedIndex);
-  },
-
-  _showController: function(index) {
-    var c;
-
-    for(var i = 0, j = this.controllers.length; i < j; i ++) {
-      c = this.controllers[i];
-      //c.detach && c.detach();
-      c.isVisible = false;
-      c.visibilityChanged && c.visibilityChanged();
-    }
-
-    c = this.controllers[index];
-    //c.attach && c.attach();
-    c.isVisible = true;
-    c.visibilityChanged && c.visibilityChanged();
-  },
-
-  _clearSelected: function() {
-    this.selectedController = null;
-    this.selectedIndex = -1;
-  },
-
-  // Return the tab at the given index
-  getController: function(index) {
-    return this.controllers[index];
-  },
-
-  // Return the current tab list
-  getControllers: function() {
-    return this.controllers;
-  },
-
-  // Get the currently selected controller
-  getSelectedController: function() {
-    return this.selectedController;
-  },
-
-  // Get the index of the currently selected controller
-  getSelectedControllerIndex: function() {
-    return this.selectedIndex;
-  },
-
-  // Add a tab
-  addController: function(controller) {
-    this.controllers.push(controller);
-
-    this.tabBar.addItem({
-      title: controller.title,
-      icon: controller.icon,
-      badge: controller.badge
-    });
-
-    // If we don't have a selected controller yet, select the first one.
-    if(!this.selectedController) {
-      this.setSelectedController(0);
-    }
-  },
-
-  // Set the tabs and select the first
-  setControllers: function(controllers) {
-    this.controllers = controllers;
-    this._clearSelected();
-    this.selectController(0);
-  },
-});
-
-})(window.ionic);
+  };
+})(window);
 
 })();
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /**
@@ -10228,14 +15434,8 @@ forEach({
   prepend: function(element, node) {
     if (element.nodeType === 1) {
       var index = element.firstChild;
-      forEach(new JQLite(node), function (child) {
-          if (window.MSApp) {
-              MSApp.execUnsafeLocalFunction(function () {
-                  element.insertBefore(child, index);
-              });
-          } else {
-              element.insertBefore(child, index);
-          }
+      forEach(new JQLite(node), function(child){
+        element.insertBefore(child, index);
       });
     }
   },
@@ -28275,7 +33475,8 @@ var styleDirective = valueFn({
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /**
@@ -29768,7 +34969,8 @@ angular.module('ngAnimate', ['ng'])
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /**
@@ -30400,7 +35602,8 @@ angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /**
@@ -32176,14 +37379,15 @@ angular.module('ui.router.compat')
 /*!
  * ionic.bundle.js is a concatenation of:
  * ionic.js, angular.js, angular-animate.js,
- * angular-ui-router.js, and ionic-angular.js
+ * angular-sanitize.js, angular-ui-router.js,
+ * and ionic-angular.js
  */
 
 /*!
  * Copyright 2014 Drifty Co.
  * http://drifty.com/
  *
- * Ionic, v1.0.0-beta.1
+ * Ionic, v1.0.0-beta.4
  * A powerful HTML5 mobile app framework.
  * http://ionicframework.com/
  *
@@ -32194,57 +37398,213 @@ angular.module('ui.router.compat')
  */
 
 (function() {
-/**
- * Create a wrapping module to ease having to include too many
- * modules.
+/*
+ * deprecated.js
+ * https://github.com/wearefractal/deprecated/
+ * Copyright (c) 2014 Fractal <contact@wearefractal.com>
+ * License MIT
  */
+//Interval object
+var deprecated = {
+  method: function(msg, log, fn) {
+    var called = false;
+    return function deprecatedMethod(){
+      if (!called) {
+        called = true;
+        log(msg);
+      }
+      return fn.apply(this, arguments);
+    };
+  },
+
+  field: function(msg, log, parent, field, val) {
+    var called = false;
+    var getter = function(){
+      if (!called) {
+        called = true;
+        log(msg);
+      }
+      return val;
+    };
+    var setter = function(v) {
+      if (!called) {
+        called = true;
+        log(msg);
+      }
+      val = v;
+      return v;
+    };
+    Object.defineProperty(parent, field, {
+      get: getter,
+      set: setter,
+      enumerable: true
+    });
+    return;
+  }
+};
+
+
+var IonicModule = angular.module('ionic', [
+  // Angular deps
+  'ngAnimate',
+  'ngSanitize',
+  'ui.router'
+]);
 
 /**
- * @ngdoc module
- * @name ionic
+ * @ngdoc service
+ * @name $ionicActionSheet
+ * @module ionic
  * @description
- * Ionic main module.
+ * The Action Sheet is a slide-up pane that lets the user choose from a set of options.
+ * Dangerous options are highlighted in red and made obvious.
+ *
+ * There are easy ways to cancel out of the action sheet, such as tapping the backdrop or even
+ * hitting escape on the keyboard for desktop testing.
+ *
+ * ![Action Sheet](http://ionicframework.com.s3.amazonaws.com/docs/controllers/actionSheet.gif)
+ *
+ * @usage
+ * To trigger an Action Sheet in your code, use the $ionicActionSheet service in your angular controllers:
+ *
+ * ```js
+ * angular.module('mySuperApp', ['ionic'])
+ * .controller(function($scope, $ionicActionSheet) {
+ *
+ *  // Triggered on a button click, or some other target
+ *  $scope.show = function() {
+ *
+ *    // Show the action sheet
+ *    $ionicActionSheet.show({
+ *      buttons: [
+ *        { text: '<b>Share</b> This' },
+ *        { text: 'Move' },
+ *      ],
+ *      destructiveText: 'Delete',
+ *      titleText: 'Modify your album',
+ *      cancelText: 'Cancel',
+ *      buttonClicked: function(index) {
+ *        return true;
+ *      }
+ *    });
+ *
+ *  };
+ * });
+ * ```
+ *
  */
+IonicModule
+.factory('$ionicActionSheet', [
+  '$rootScope',
+  '$document',
+  '$compile',
+  '$animate',
+  '$timeout',
+  '$ionicTemplateLoader',
+  '$ionicPlatform',
+function($rootScope, $document, $compile, $animate, $timeout, $ionicTemplateLoader, $ionicPlatform) {
 
-angular.module('ionic.service', [
-  'ionic.service.bind',
-  'ionic.service.platform',
-  'ionic.service.actionSheet',
-  'ionic.service.gesture',
-  'ionic.service.loading',
-  'ionic.service.modal',
-  'ionic.service.popup',
-  'ionic.service.templateLoad',
-  'ionic.service.view',
-  'ionic.decorator.location'
-]);
+  return {
+    /**
+     * @ngdoc method
+     * @name $ionicActionSheet#show
+     * @description
+     * Load and return a new action sheet.
+     *
+     * A new isolated scope will be created for the
+     * action sheet and the new element will be appended into the body.
+     *
+     * @param {object} opts The options for this ActionSheet. Properties:
+     *
+     *  - `[Object]` `buttons` Which buttons to show.  Each button is an object with a `text` field.
+     *  - `{string}` `titleText` The title to show on the action sheet.
+     *  - `{string=}` `cancelText` The text for a 'cancel' button on the action sheet.
+     *  - `{string=}` `destructiveText` The text for a 'danger' on the action sheet.
+     *  - `{function=}` `cancel` Called if the cancel button is pressed or the backdrop is tapped.
+     *  - `{function=}` `buttonClicked` Called when one of the non-destructive buttons is clicked,
+     *     with the index of the button that was clicked. Return true to close the action sheet,
+     *     or false to keep it opened.
+     *  - `{function=}` `destructiveButtonClicked` Called when the destructive button is clicked.
+     *     Return true to close the action sheet, or false to keep it opened.
+     */
+    show: function(opts) {
+      var scope = $rootScope.$new(true);
 
-angular.module('ionic.ui', [
-    'ionic.ui.checkbox',
-    'ionic.ui.content',
-    'ionic.ui.header',
-    'ionic.ui.list',
-    'ionic.ui.navBar',
-    'ionic.ui.popup',
-    'ionic.ui.radio',
-    'ionic.ui.scroll',
-    'ionic.ui.sideMenu',
-    'ionic.ui.slideBox',
-    'ionic.ui.tabs',
-    'ionic.ui.toggle',
-    'ionic.ui.touch',
-    'ionic.ui.viewState'
-]);
+      angular.extend(scope, {
+        cancel: angular.noop,
+        buttonClicked: angular.noop,
+        destructiveButtonClicked: angular.noop
+      }, opts);
 
-angular.module('ionic', [
-    'ionic.service',
-    'ionic.ui',
+      // Compile the template
+      var element = $compile('<ion-action-sheet buttons="buttons"></ion-action-sheet>')(scope);
 
-    // Angular deps
-    'ngAnimate',
-    'ngSanitize',
-    'ui.router'
-]);
+      // Grab the sheet element for animation
+      var sheetEl = angular.element(element[0].querySelector('.action-sheet-wrapper'));
+
+      var hideSheet = function(didCancel) {
+        sheetEl.removeClass('action-sheet-up');
+        if(didCancel) {
+          $timeout(function(){
+            opts.cancel();
+          }, 200);
+        }
+
+        $animate.removeClass(element, 'active', function() {
+          scope.$destroy();
+        });
+
+        $document[0].body.classList.remove('action-sheet-open');
+
+        scope.$deregisterBackButton && scope.$deregisterBackButton();
+      };
+
+      // Support Android back button to close
+      scope.$deregisterBackButton = $ionicPlatform.registerBackButtonAction(
+        function(){
+          hideSheet();
+        },
+        PLATFORM_BACK_BUTTON_PRIORITY_ACTION_SHEET
+      );
+
+      scope.cancel = function() {
+        hideSheet(true);
+      };
+
+      scope.buttonClicked = function(index) {
+        // Check if the button click event returned true, which means
+        // we can close the action sheet
+        if((opts.buttonClicked && opts.buttonClicked(index)) === true) {
+          hideSheet(false);
+        }
+      };
+
+      scope.destructiveButtonClicked = function() {
+        // Check if the destructive button click event returned true, which means
+        // we can close the action sheet
+        if((opts.destructiveButtonClicked && opts.destructiveButtonClicked()) === true) {
+          hideSheet(false);
+        }
+      };
+
+      $document[0].body.appendChild(element[0]);
+
+      $document[0].body.classList.add('action-sheet-open');
+
+      var sheet = new ionic.views.ActionSheet({el: element[0] });
+      scope.sheet = sheet;
+
+      $animate.addClass(element, 'active');
+
+      $timeout(function(){
+        sheetEl.addClass('action-sheet-up');
+      }, 20);
+
+      return sheet;
+    }
+  };
+
+}]);
 
 
 angular.element.prototype.addClass = function(cssClasses) {
@@ -32302,231 +37662,151 @@ angular.element.prototype.removeClass = function(cssClasses) {
 };
 
 
-function delegateService(methodNames) {
-  return ['$log', function($log) {
-    var delegate = this;
-
-    var instances = this._instances = [];
-    this._registerInstance = function(instance, handle) {
-      handle || (handle = ionic.Utils.nextUid());
-
-      instance.$$delegateHandle = handle;
-      instances.push(instance);
-
-      return function deregister() {
-        var index = instances.indexOf(instance);
-        if (index !== -1) {
-          instances.splice(index, 1);
-        }
-      };
-    };
-
-    this.$getByHandle = function(handle) {
-      if (!handle) {
-        return delegate;
-      }
-      return new InstanceForHandle(handle);
-    };
-
-    /*
-     * Creates a new object that will have all the methodNames given,
-     * and call them on the given the controller instance matching given
-     * handle.
-     * The reason we don't just let $getByHandle return the controller instance
-     * itself is that the controller instance might not exist yet.
-     *
-     * We want people to be able to do
-     * `var instance = $ionicScrollDelegate.$getByHandle('foo')` on controller
-     * instantiation, but on controller instantiation a child directive
-     * may not have been compiled yet!
-     *
-     * So this is our way of solving this problem: we create an object
-     * that will only try to fetch the controller with given handle
-     * once the methods are actually called.
-     */
-    function InstanceForHandle(handle) {
-      this.handle = handle;
-    }
-    methodNames.forEach(function(methodName) {
-      InstanceForHandle.prototype[methodName] = function() {
-        var handle = this.handle;
-        var instancesToUse = instances.filter(function(instance) {
-          return instance.$$delegateHandle === handle;
-        });
-        if (!instancesToUse.length) {
-          return $log.warn(
-            'Delegate for handle "'+this.handle+'" could not find a',
-            'corresponding element with delegate-handle="'+this.handle+'"!',
-            methodName, 'was not called!');
-        }
-        return callMethod(instancesToUse, methodName, arguments);
-      };
-      delegate[methodName] = function() {
-        return callMethod(instances, methodName, arguments);
-      };
-
-      function callMethod(instancesToUse, methodName, args) {
-        var finalResult;
-        var result;
-        instancesToUse.forEach(function(instance, index) {
-          result = instance[methodName].apply(instance, args);
-          //Make it so the first result is the one returned
-          if (index === 0) {
-            finalResult = result;
-          }
-        });
-        return finalResult;
-      }
-    });
-  }];
-}
-
-angular.module('ionic.service.actionSheet', ['ionic.service.templateLoad', 'ionic.service.platform', 'ionic.ui.actionSheet', 'ngAnimate'])
-
 /**
  * @ngdoc service
- * @name $ionicActionSheet
+ * @name $ionicAnimation
  * @module ionic
  * @description
- * The Action Sheet is a slide-up pane that lets the user choose from a set of options.
- * Dangerous options are highlighted in red and made obvious.
  *
- * There are easy ways to cancel out of the action sheet, such as tapping the backdrop or even
- * hitting escape on the keyboard for desktop testing.
- *
- * ![Action Sheet](http://ionicframework.com.s3.amazonaws.com/docs/controllers/actionSheet.gif)
+ * A powerful animation and transition system for Ionic apps.
  *
  * @usage
- * To trigger an Action Sheet in your code, use the $ionicActionSheet service in your angular controllers:
  *
  * ```js
  * angular.module('mySuperApp', ['ionic'])
- * .controller(function($scope, $ionicActionSheet) {
- *
- *  // Triggered on a button click, or some other target
- *  $scope.show = function() {
- *
- *    // Show the action sheet
- *    $ionicActionSheet.show({
- *      buttons: [
- *        { text: 'Share' },
- *        { text: 'Move' },
- *      ],
- *      destructiveText: 'Delete',
- *      titleText: 'Modify your album',
- *      cancelText: 'Cancel',
- *      buttonClicked: function(index) {
- *        return true;
- *      }
- *    });
- *
- *  };
+ * .controller(function($scope, $ionicAnimation) {
+ *    var anim = $ionicAnimate({
+ *     // A unique, reusable name
+ *     name: 'popIn',
+ *     
+ *     // The duration of an auto playthrough
+ *     duration: 0.5,
+ *     
+ *     // How long to wait before running the animation
+ *     delay: 0,
+ *     
+ *     // Whether to reverse after doing one run through
+ *     autoReverse: false,
+ *     
+ *     // How many times to repeat? -1 or null for infinite
+ *     repeat: -1,
+ *     
+ *     // Timing curve to use (same as CSS timing functions), or a function of time "t" to handle it yourself
+ *     curve: 'ease-in-out'
+ *     
+ *     onStart: function() {
+ *       // Callback on start
+ *     },
+ *     onEnd: function() {
+ *       // Callback on end
+ *     },
+ *     step: function(amt) {
+ *       
+ *     }
+ *   })
  * });
  * ```
  *
  */
-.factory('$ionicActionSheet', ['$rootScope', '$document', '$compile', '$animate', '$timeout', '$ionicTemplateLoader', '$ionicPlatform',
-function($rootScope, $document, $compile, $animate, $timeout, $ionicTemplateLoader, $ionicPlatform) {
+IonicModule
+.provider('$ionicAnimation', function() {
+  var useSlowAnimations = false;
+  this.setSlowAnimations = function(isSlow) {
+    useSlowAnimations = isSlow;
+  };
+
+  this.$get = [function() {
+    return function(opts) {
+      opts.useSlowAnimations = useSlowAnimations;
+      return ionic.Animation.create(opts);
+    }
+  }]
+});
+
+/**
+ * @ngdoc service
+ * @name $ionicBackdrop
+ * @module ionic
+ * @description
+ * Shows and hides a backdrop over the UI.  Appears behind popups, loading,
+ * and other overlays.
+ *
+ * Often, multiple UI components require a backdrop, but only one backdrop is
+ * ever needed in the DOM at a time.
+ *
+ * Therefore, each component that requires the backdrop to be shown calls
+ * `$ionicBackdrop.retain()` when it wants the backdrop, then `$ionicBackdrop.release()`
+ * when it is done with the backdrop.
+ *
+ * For each time `retain` is called, the backdrop will be shown until `release` is called.
+ *
+ * For example, if `retain` is called three times, the backdrop will be shown until `release`
+ * is called three times.
+ *
+ * @usage
+ *
+ * ```js
+ * function MyController($scope, $ionicBackdrop, $timeout) {
+ *   //Show a backdrop for one second
+ *   $scope.action = function() {
+ *     $ionicBackdrop.retain();
+ *     $timeout(function() {
+ *       $ionicBackdrop.release();
+ *     }, 1000);
+ *   };
+ * }
+ * ```
+ */
+IonicModule
+.factory('$ionicBackdrop', [
+  '$document',
+function($document) {
+
+  var el = angular.element('<div class="backdrop">');
+  var backdropHolds = 0;
+
+  $document[0].body.appendChild(el[0]);
 
   return {
     /**
      * @ngdoc method
-     * @name $ionicActionSheet#show
-     * @description
-     * Load and return a new action sheet.
-     *
-     * A new isolated scope will be created for the
-     * action sheet and the new element will be appended into the body.
-     *
-     * @param {object} opts The options for this ActionSheet. Properties:
-     *
-     *  - `[Object]` `buttons` Which buttons to show.  Each button is an object with a `text` field.
-     *  - `{string}` `titleText` The title to show on the action sheet.
-     *  - `{string=}` `cancelText` The text for a 'cancel' button on the action sheet.
-     *  - `{string=}` `destructiveText` The text for a 'danger' on the action sheet.
-     *  - `{function=}` `cancel` Called if the cancel button is pressed or the backdrop is tapped.
-     *  - `{function=}` `buttonClicked` Called when one of the non-destructive buttons is clicked,
-     *     with the index of the button that was clicked. Return true to close the action sheet,
-     *     or false to keep it opened.
-     *  - `{function=}` `destructiveButtonClicked` Called when the destructive button is clicked.
-     *     Return true to close the action sheet, or false to keep it opened.
+     * @name $ionicBackdrop#retain
+     * @description Retains the backdrop.
      */
-    show: function(opts) {
-      var scope = $rootScope.$new(true);
-
-      angular.extend(scope, opts);
-
-      // Compile the template
-      var element = $compile('<ion-action-sheet buttons="buttons"></ion-action-sheet>')(scope);
-
-      // Grab the sheet element for animation
-      var sheetEl = angular.element(element[0].querySelector('.action-sheet-wrapper'));
-
-      var hideSheet = function(didCancel) {
-        sheetEl.removeClass('action-sheet-up');
-        if(didCancel) {
-          $timeout(function(){
-            opts.cancel();
-          }, 200);
-        }
-
-        $animate.removeClass(element, 'active', function() {
-          scope.$destroy();
-        });
-
-        $document[0].body.classList.remove('action-sheet-open');
-
-        scope.$deregisterBackButton && scope.$deregisterBackButton();
-      };
-
-      // Support Android back button to close
-      scope.$deregisterBackButton = $ionicPlatform.registerBackButtonAction(function(){
-        hideSheet();
-      }, 300);
-
-      scope.cancel = function() {
-        hideSheet(true);
-      };
-
-      scope.buttonClicked = function(index) {
-        // Check if the button click event returned true, which means
-        // we can close the action sheet
-        if((opts.buttonClicked && opts.buttonClicked(index)) === true) {
-          hideSheet(false);
-        }
-      };
-
-      scope.destructiveButtonClicked = function() {
-        // Check if the destructive button click event returned true, which means
-        // we can close the action sheet
-        if((opts.destructiveButtonClicked && opts.destructiveButtonClicked()) === true) {
-          hideSheet(false);
-        }
-      };
-
-      $document[0].body.appendChild(element[0]);
-
-      $document[0].body.classList.add('action-sheet-open');
-
-      var sheet = new ionic.views.ActionSheet({el: element[0] });
-      scope.sheet = sheet;
-
-      $animate.addClass(element, 'active');
-
-      $timeout(function(){
-        sheetEl.addClass('action-sheet-up');
-      }, 20);
-
-      return sheet;
-    }
+    retain: retain,
+    /**
+     * @ngdoc method
+     * @name $ionicBackdrop#release
+     * @description
+     * Releases the backdrop.
+     */
+    release: release,
+    // exposed for testing
+    _element: el
   };
 
+  function retain() {
+    if ( (++backdropHolds) === 1 ) {
+      el.addClass('visible');
+      ionic.requestAnimationFrame(function() {
+        backdropHolds && el.addClass('active');
+      });
+    }
+  }
+  function release() {
+    if ( (--backdropHolds) === 0 ) {
+      el.removeClass('active');
+      setTimeout(function() {
+        !backdropHolds && el.removeClass('visible');
+      }, 100);
+    }
+  }
 }]);
 
-angular.module('ionic.service.bind', [])
 /**
  * @private
  */
+IonicModule
 .factory('$ionicBind', ['$parse', '$interpolate', function($parse, $interpolate) {
   var LOCAL_REGEXP = /^\s*([@=&])(\??)\s*(\w*)\s*$/;
   return function(scope, attrs, bindDefinition) {
@@ -32580,7 +37860,548 @@ angular.module('ionic.service.bind', [])
   };
 }]);
 
-angular.module('ionic.service.gesture', [])
+IonicModule
+.factory('$collectionDataSource', [
+  '$cacheFactory',
+  '$parse',
+function($cacheFactory, $parse) {
+  var nextCacheId = 0;
+  function CollectionRepeatDataSource(options) {
+    var self = this;
+    this.scope = options.scope;
+    this.transcludeFn = options.transcludeFn;
+    this.transcludeParent = options.transcludeParent;
+
+    this.keyExpr = options.keyExpr;
+    this.listExpr = options.listExpr;
+    this.trackByExpr = options.trackByExpr;
+
+    this.heightGetter = options.heightGetter;
+    this.widthGetter = options.widthGetter;
+
+    this.dimensions = [];
+    this.data = [];
+
+    if (this.trackByExpr) {
+      var trackByGetter = $parse(this.trackByExpr);
+      var hashFnLocals = {$id: hashKey};
+      this.itemHashGetter = function(index, value) {
+        hashFnLocals[self.keyExpr] = value;
+        hashFnLocals.$index = index;
+        return trackByGetter(self.scope, hashFnLocals);
+      };
+    } else {
+      this.itemHashGetter = function(index, value) {
+        return hashKey(value);
+      };
+    }
+
+    var cacheKeys = {};
+    this.itemCache = $cacheFactory(nextCacheId++, {size: 500});
+
+    var _put = this.itemCache.put;
+    this.itemCache.put = function(key, value) {
+      cacheKeys[key] = true;
+      return _put(key, value);
+    };
+
+    var _remove = this.itemCache.remove;
+    this.itemCache.remove = function(key) {
+      delete cacheKeys[key];
+      return _remove(key);
+    };
+    this.itemCache.keys = function() {
+      return Object.keys(cacheKeys);
+    };
+  }
+  CollectionRepeatDataSource.prototype = {
+    destroy: function() {
+      this.dimensions.length = 0;
+      this.itemCache.keys().forEach(function(key) {
+        var item = this.itemCache.get(key);
+        item.element.remove();
+        item.scope.$destroy();
+      }, this);
+      this.itemCache.removeAll();
+    },
+    calculateDataDimensions: function() {
+      var locals = {};
+      this.dimensions = this.data.map(function(value, index) {
+        locals[this.keyExpr] = value;
+        locals.$index = index;
+        return {
+          width: this.widthGetter(this.scope, locals),
+          height: this.heightGetter(this.scope, locals)
+        };
+      }, this);
+    },
+    compileItem: function(index, value) {
+      var key = this.itemHashGetter(index, value);
+      var cachedItem = this.itemCache.get(key);
+      if (cachedItem) return cachedItem;
+
+      var item = {};
+      item.scope = this.scope.$new();
+      item.scope[this.keyExpr] = value;
+
+      this.transcludeFn(item.scope, function(clone) {
+        item.element = clone;
+        item.element[0].style.position = 'absolute';
+      });
+
+      return this.itemCache.put(key, item);
+    },
+    getItem: function(index) {
+      var value = this.data[index];
+      var item = this.compileItem(index, value);
+
+      if (item.scope.$index !== index) {
+        item.scope.$index = index;
+        item.scope.$first = (index === 0);
+        item.scope.$last = (index === (this.getLength() - 1));
+        item.scope.$middle = !(item.scope.$first || item.scope.$last);
+        item.scope.$odd = !(item.scope.$even = (index&1) === 0);
+      }
+
+      return item;
+    },
+    detachItem: function(item) {
+      var i, node, parent;
+      //Don't .remove(), that will destroy element data
+      for (i = 0; i < item.element.length; i++) {
+        node = item.element[i];
+        parent = node.parentNode;
+        parent && parent.removeChild(node);
+      }
+      //Don't .$destroy(), just stop watchers and events firing
+      disconnectScope(item.scope);
+    },
+    attachItem: function(item) {
+      if (!item.element[0].parentNode) {
+        this.transcludeParent[0].appendChild(item.element[0]);
+      }
+      reconnectScope(item.scope);
+      !item.scope.$$phase && item.scope.$digest();
+    },
+    getLength: function() {
+      return this.data && this.data.length || 0;
+    },
+    setData: function(value) {
+      this.data = value || [];
+      this.calculateDataDimensions();
+    },
+  };
+
+  return CollectionRepeatDataSource;
+}]);
+
+/**
+* Computes a hash of an 'obj'.
+ * Hash of a:
+ *  string is string
+ *  number is number as string
+ *  object is either result of calling $$hashKey function on the object or uniquely generated id,
+ *         that is also assigned to the $$hashKey property of the object.
+ *
+ * @param obj
+ * @returns {string} hash string such that the same input will have the same hash string.
+ *         The resulting string key is in 'type:hashKey' format.
+ */
+function hashKey(obj) {
+  var objType = typeof obj,
+      key;
+
+  if (objType == 'object' && obj !== null) {
+    if (typeof (key = obj.$$hashKey) == 'function') {
+      // must invoke on object to keep the right this
+      key = obj.$$hashKey();
+    } else if (key === undefined) {
+      key = obj.$$hashKey = ionic.Utils.nextUid();
+    }
+  } else {
+    key = obj;
+  }
+
+  return objType + ':' + key;
+}
+
+function disconnectScope(scope) {
+  if (scope.$root === scope) {
+    return; // we can't disconnect the root node;
+  }
+  var parent = scope.$parent;
+  scope.$$disconnected = true;
+  // See Scope.$destroy
+  if (parent.$$childHead === scope) {
+    parent.$$childHead = scope.$$nextSibling;
+  }
+  if (parent.$$childTail === scope) {
+    parent.$$childTail = scope.$$prevSibling;
+  }
+  if (scope.$$prevSibling) {
+    scope.$$prevSibling.$$nextSibling = scope.$$nextSibling;
+  }
+  if (scope.$$nextSibling) {
+    scope.$$nextSibling.$$prevSibling = scope.$$prevSibling;
+  }
+  scope.$$nextSibling = scope.$$prevSibling = null;
+}
+
+function reconnectScope(scope) {
+  if (scope.$root === scope) {
+    return; // we can't disconnect the root node;
+  }
+  if (!scope.$$disconnected) {
+    return;
+  }
+  var parent = scope.$parent;
+  scope.$$disconnected = false;
+  // See Scope.$new for this logic...
+  scope.$$prevSibling = parent.$$childTail;
+  if (parent.$$childHead) {
+    parent.$$childTail.$$nextSibling = scope;
+    parent.$$childTail = scope;
+  } else {
+    parent.$$childHead = parent.$$childTail = scope;
+  }
+}
+
+
+IonicModule
+.factory('$collectionRepeatManager', [
+  '$rootScope',
+  '$timeout',
+function($rootScope, $timeout) {
+  function CollectionRepeatManager(options) {
+    var self = this;
+    this.dataSource = options.dataSource;
+    this.element = options.element;
+    this.scrollView = options.scrollView;
+
+    this.isVertical = !!this.scrollView.options.scrollingY;
+    this.renderedItems = {};
+
+    this.lastRenderScrollValue = this.bufferTransformOffset = this.hasBufferStartIndex =
+      this.hasBufferEndIndex = this.bufferItemsLength = 0;
+    this.setCurrentIndex(0);
+
+    this.scrollView.__$callback = this.scrollView.__callback;
+    this.scrollView.__callback = angular.bind(this, this.renderScroll);
+
+    function getViewportSize() { return self.viewportSize; }
+    if (this.isVertical) {
+      this.scrollView.options.getContentHeight = getViewportSize;
+
+      this.scrollValue = function() {
+        return this.scrollView.__scrollTop;
+      };
+      this.scrollMaxValue = function() {
+        return this.scrollView.__maxScrollTop;
+      };
+      this.scrollSize = function() {
+        return this.scrollView.__clientHeight;
+      };
+      this.secondaryScrollSize = function() {
+        return this.scrollView.__clientWidth;
+      };
+      this.transformString = function(y, x) {
+        return 'translate3d('+x+'px,'+y+'px,0)';
+      };
+      this.primaryDimension = function(dim) {
+        return dim.height;
+      };
+      this.secondaryDimension = function(dim) {
+        return dim.width;
+      };
+    } else {
+      this.scrollView.options.getContentWidth = getViewportSize;
+
+      this.scrollValue = function() {
+        return this.scrollView.__scrollLeft;
+      };
+      this.scrollMaxValue = function() {
+        return this.scrollView.__maxScrollLeft;
+      };
+      this.scrollSize = function() {
+        return this.scrollView.__clientWidth;
+      };
+      this.secondaryScrollSize = function() {
+        return this.scrollView.__clientHeight;
+      };
+      this.transformString = function(x, y) {
+        return 'translate3d('+x+'px,'+y+'px,0)';
+      };
+      this.primaryDimension = function(dim) {
+        return dim.width;
+      };
+      this.secondaryDimension = function(dim) {
+        return dim.height;
+      };
+    }
+  }
+
+  CollectionRepeatManager.prototype = {
+    destroy: function() {
+      for (var i in this.renderedItems) {
+        this.removeItem(i);
+      }
+    },
+    calculateDimensions: function() {
+      var primaryPos = 0;
+      var secondaryPos = 0;
+      var len = this.dataSource.dimensions.length;
+      var secondaryScrollSize = this.secondaryScrollSize();
+      var previous;
+
+      return this.dataSource.dimensions.map(function(dim) {
+        var rect = {
+          primarySize: this.primaryDimension(dim),
+          secondarySize: Math.min(this.secondaryDimension(dim), secondaryScrollSize)
+        };
+
+        if (previous) {
+          secondaryPos += previous.secondarySize;
+          if (previous.primaryPos === primaryPos &&
+              secondaryPos + rect.secondarySize > secondaryScrollSize) {
+            secondaryPos = 0;
+            primaryPos += previous.primarySize;
+          } else {
+          }
+        }
+
+        rect.primaryPos = primaryPos;
+        rect.secondaryPos = secondaryPos;
+
+        previous = rect;
+        return rect;
+      }, this);
+    },
+    resize: function() {
+      this.dimensions = this.calculateDimensions();
+      var last = this.dimensions[this.dimensions.length - 1];
+      this.viewportSize = last ? last.primaryPos + last.primarySize : 0;
+      this.setCurrentIndex(0);
+      this.render(true);
+    },
+    setCurrentIndex: function(index, height) {
+      this.currentIndex = index;
+
+      this.hasPrevIndex = index > 0;
+      if (this.hasPrevIndex) {
+        this.previousPos = this.dimensions[index - 1].primaryPos;
+      }
+      this.hasNextIndex = index + 1 < this.dataSource.getLength();
+      if (this.hasNextIndex) {
+        this.nextPos = this.dimensions[index + 1].primaryPos;
+      }
+    },
+    renderScroll: ionic.animationFrameThrottle(function(transformLeft, transformTop, zoom, wasResize) {
+      if (this.isVertical) {
+        transformTop = this.getTransformPosition(transformTop);
+      } else {
+        transformLeft = this.getTransformPosition(transformLeft);
+      }
+      return this.scrollView.__$callback(transformLeft, transformTop, zoom, wasResize);
+    }),
+    getTransformPosition: function(transformPos) {
+      if ((this.hasNextIndex && transformPos >= this.nextPos) ||
+          (this.hasPrevIndex && transformPos < this.previousPos) ||
+           Math.abs(transformPos - this.lastRenderScrollValue) > 100) {
+        this.render();
+      }
+      return transformPos - this.lastRenderScrollValue;
+    },
+    getIndexForScrollValue: function(i, scrollValue) {
+      var rect;
+      //Scrolling up
+      if (scrollValue <= this.dimensions[i].primaryPos) {
+        while ( (rect = this.dimensions[i - 1]) && rect.primaryPos > scrollValue) {
+          i--;
+        }
+      //Scrolling down
+      } else {
+        while ( (rect = this.dimensions[i + 1]) && rect.primaryPos < scrollValue) {
+          i++;
+        }
+      }
+      return i;
+    },
+    render: function(shouldRedrawAll) {
+      var i;
+      if (this.currentIndex >= this.dataSource.getLength() || shouldRedrawAll) {
+        for (i in this.renderedItems) {
+          this.removeItem(i);
+        }
+        if (this.currentIndex >= this.dataSource.getLength()) return null;
+      }
+
+      var rect;
+      var scrollValue = this.scrollValue();
+      var scrollDelta = scrollValue - this.lastRenderScrollValue;
+      var scrollSize = this.scrollSize();
+      var scrollSizeEnd = scrollSize + scrollValue;
+      var startIndex = this.getIndexForScrollValue(this.currentIndex, scrollValue);
+
+      //Make buffer start on previous row
+      var bufferStartIndex = Math.max(startIndex - 1, 0);
+      while (bufferStartIndex > 0 &&
+         (rect = this.dimensions[bufferStartIndex]) &&
+         rect.primaryPos === this.dimensions[startIndex - 1].primaryPos) {
+        bufferStartIndex--;
+      }
+      var startPos = this.dimensions[bufferStartIndex].primaryPos;
+
+      i = bufferStartIndex;
+      while ((rect = this.dimensions[i]) && (rect.primaryPos - rect.primarySize < scrollSizeEnd)) {
+        this.renderItem(i, rect.primaryPos - startPos, rect.secondaryPos);
+        i++;
+      }
+      var bufferEndIndex = i - 1;
+
+      for (i in this.renderedItems) {
+        if (i < bufferStartIndex || i > bufferEndIndex) {
+          this.removeItem(i);
+        }
+      }
+
+      this.setCurrentIndex(startIndex);
+      this.lastRenderScrollValue = startPos;
+    },
+    renderItem: function(dataIndex, primaryPos, secondaryPos) {
+      var item = this.dataSource.getItem(dataIndex);
+      if (item) {
+        this.dataSource.attachItem(item);
+        item.element[0].style[ionic.CSS.TRANSFORM] = this.transformString(
+          primaryPos, secondaryPos, secondaryPos
+        );
+        this.renderedItems[dataIndex] = item;
+      } else {
+        delete this.renderedItems[dataIndex];
+      }
+    },
+    removeItem: function(dataIndex) {
+      var item = this.renderedItems[dataIndex];
+      if (item) {
+        this.dataSource.detachItem(item);
+        delete this.renderedItems[dataIndex];
+      }
+    }
+  };
+
+  return CollectionRepeatManager;
+}]);
+
+
+function delegateService(methodNames) {
+  return ['$log', function($log) {
+    var delegate = this;
+
+    var instances = this._instances = [];
+    this._registerInstance = function(instance, handle) {
+      instance.$$delegateHandle = handle;
+      instances.push(instance);
+
+      return function deregister() {
+        var index = instances.indexOf(instance);
+        if (index !== -1) {
+          instances.splice(index, 1);
+        }
+      };
+    };
+
+    this.$getByHandle = function(handle) {
+      if (!handle) {
+        return delegate;
+      }
+      return new InstanceForHandle(handle);
+    };
+
+    /*
+     * Creates a new object that will have all the methodNames given,
+     * and call them on the given the controller instance matching given
+     * handle.
+     * The reason we don't just let $getByHandle return the controller instance
+     * itself is that the controller instance might not exist yet.
+     *
+     * We want people to be able to do
+     * `var instance = $ionicScrollDelegate.$getByHandle('foo')` on controller
+     * instantiation, but on controller instantiation a child directive
+     * may not have been compiled yet!
+     *
+     * So this is our way of solving this problem: we create an object
+     * that will only try to fetch the controller with given handle
+     * once the methods are actually called.
+     */
+    function InstanceForHandle(handle) {
+      this.handle = handle;
+    }
+    methodNames.forEach(function(methodName) {
+      InstanceForHandle.prototype[methodName] = function() {
+        var handle = this.handle;
+        var args = arguments;
+        var matchingInstancesFound = 0;
+        var finalResult;
+        var result;
+
+        //This logic is repeated below; we could factor some of it out to a function
+        //but don't because it lets this method be more performant (one loop versus 2)
+        instances.forEach(function(instance) {
+          if (instance.$$delegateHandle === handle) {
+            matchingInstancesFound++;
+            result = instance[methodName].apply(instance, args);
+            //Only return the value from the first call
+            if (matchingInstancesFound === 1) {
+              finalResult = result;
+            }
+          }
+        });
+
+        if (!matchingInstancesFound) {
+          return $log.warn(
+            'Delegate for handle "'+this.handle+'" could not find a ' +
+            'corresponding element with delegate-handle="'+this.handle+'"! ' +
+            methodName + '() was not called!\n' +
+            'Possible cause: If you are calling ' + methodName + '() immediately, and ' +
+            'your element with delegate-handle="' + this.handle + '" is a child of your ' +
+            'controller, then your element may not be compiled yet. Put a $timeout ' +
+            'around your call to ' + methodName + '() and try again.'
+          );
+        }
+
+        return finalResult;
+      };
+      delegate[methodName] = function() {
+        var args = arguments;
+        var finalResult;
+        var result;
+
+        //This logic is repeated above
+        instances.forEach(function(instance, index) {
+          result = instance[methodName].apply(instance, args);
+          //Only return the value from the first call
+          if (index === 0) {
+            finalResult = result;
+          }
+        });
+
+        return finalResult;
+      };
+
+      function callMethod(instancesToUse, methodName, args) {
+        var finalResult;
+        var result;
+        instancesToUse.forEach(function(instance, index) {
+          result = instance[methodName].apply(instance, args);
+          //Make it so the first result is the one returned
+          if (index === 0) {
+            finalResult = result;
+          }
+        });
+        return finalResult;
+      }
+    });
+  }];
+}
 
 /**
  * @ngdoc service
@@ -32589,6 +38410,7 @@ angular.module('ionic.service.gesture', [])
  * @description An angular service exposing ionic
  * {@link ionic.utility:ionic.EventController}'s gestures.
  */
+IonicModule
 .factory('$ionicGesture', [function() {
   return {
     /**
@@ -32605,7 +38427,7 @@ angular.module('ionic.service.gesture', [])
     },
     /**
      * @ngdoc method
-     * @name $ionicGesture#on
+     * @name $ionicGesture#off
      * @description Remove an event listener for a gesture on an element. See {@link ionic.utility:ionic.EventController#offGesture}.
      * @param {string} eventType The gesture event to remove the listener for.
      * @param {function(e)} callback The listener to remove.
@@ -32617,7 +38439,14 @@ angular.module('ionic.service.gesture', [])
   };
 }]);
 
-angular.module('ionic.service.loading', ['ionic.ui.loading'])
+
+var LOADING_TPL =
+  '<div class="loading">' +
+  '</div>';
+
+var LOADING_HIDE_DEPRECATED = '$ionicLoading instance.hide() has been deprecated. Use $ionicLoading.hide().';
+var LOADING_SHOW_DEPRECATED = '$ionicLoading instance.show() has been deprecated. Use $ionicLoading.show().';
+var LOADING_SET_DEPRECATED = '$ionicLoading instance.setContent() has been deprecated. Use $ionicLoading.show({ template: \'my content\' }).';
 
 /**
  * @ngdoc service
@@ -32632,76 +38461,169 @@ angular.module('ionic.service.loading', ['ionic.ui.loading'])
  * angular.module('LoadingApp', ['ionic'])
  * .controller('LoadingCtrl', function($scope, $ionicLoading) {
  *   $scope.show = function() {
- *     $scope.loading = $ionicLoading.show({
- *       content: 'Loading',
+ *     $ionicLoading.show({
+ *       template: 'Loading...'
  *     });
  *   };
  *   $scope.hide = function(){
- *     $scope.loading.hide();
+ *     $ionicLoading.hide();
  *   };
  * });
  * ```
  */
-.factory('$ionicLoading', ['$rootScope', '$document', '$compile', function($rootScope, $document, $compile) {
+IonicModule
+.factory('$ionicLoading', [
+  '$document',
+  '$ionicTemplateLoader',
+  '$ionicBackdrop',
+  '$timeout',
+  '$q',
+  '$log',
+  '$compile',
+  '$ionicPlatform',
+function($document, $ionicTemplateLoader, $ionicBackdrop, $timeout, $q, $log, $compile, $ionicPlatform) {
+
+  var loaderInstance;
+  //default values
+  var deregisterBackAction = angular.noop;
+  var loadingShowDelay = $q.when();
+
   return {
     /**
      * @ngdoc method
      * @name $ionicLoading#show
-     * @param {object} opts The options for the indicator. Available properties:
-     *  - `{string=}` `content` The content of the indicator. Default: none.
-     *  - `{string=}` `animation` The animation of the indicator.
-     *    Default: 'fade-in'.
-     *  - `{boolean=}` `showBackdrop` Whether to show a backdrop. Default: true.
-     *  - `{number=}` `maxWidth` The maximum width of the indicator, in pixels.
-     *    Default: 200.
-     *  - `{number=}` `showDelay` How many milliseconds to delay showing the
-     *    indicator.  Default: 0.
-     * @returns {object} A shown loader with the following methods:
-     *  - `hide()` - Hides the loader.
-     *  - `show()` - Shows the loader.
-     *  - `setContent(string)` - Sets the html content of the loader.
+     * @description Shows a loading indicator. If the indicator is already shown,
+     * it will set the options given and keep the indicator shown.
+     * @param {object} opts The options for the loading indicator. Available properties:
+     *  - `{string=}` `template` The html content of the indicator.
+     *  - `{string=}` `templateUrl` The url of an html template to load as the content of the indicator.
+     *  - `{boolean=}` `noBackdrop` Whether to hide the backdrop.
+     *  - `{number=}` `delay` How many milliseconds to delay showing the indicator.
+     *  - `{number=}` `duration` How many milliseconds to wait until automatically
+     *  hiding the indicator.
      */
-    show: function(opts) {
-      var defaults = {
-        content: '',
-        animation: 'fade-in',
-        showBackdrop: true,
-        maxWidth: 200,
-        showDelay: 0
-      };
-
-      opts = angular.extend(defaults, opts);
-
-      var scope = $rootScope.$new(true);
-      angular.extend(scope, opts);
-
-      // Make sure there is only one loading element on the page at one point in time
-      var existing = angular.element($document[0].querySelector('.loading-backdrop'));
-      if(existing.length) {
-        existing.remove();
-      }
-
-      // Compile the template
-      var element = $compile('<ion-loading>' + opts.content + '</ion-loading>')(scope);
-
-      $document[0].body.appendChild(element[0]);
-
-      var loading = new ionic.views.Loading({
-        el: element[0],
-        maxWidth: opts.maxWidth,
-        showDelay: opts.showDelay
-      });
-
-      loading.show();
-
-      scope.loading = loading;
-
-      return loading;
-    }
+    show: showLoader,
+    /**
+     * @ngdoc method
+     * @name $ionicLoading#hide
+     * @description Hides the loading indicator, if shown.
+     */
+    hide: hideLoader,
+    /**
+     * @private for testing
+     */
+    _getLoader: getLoader
   };
-}]);
 
-angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.service.platform', 'ionic.ui.modal'])
+  function getLoader() {
+    if (!loaderInstance) {
+      loaderInstance = $ionicTemplateLoader.compile({
+        template: LOADING_TPL,
+        appendTo: $document[0].body
+      })
+      .then(function(loader) {
+        var self = loader;
+
+        loader.show = function(options) {
+          var templatePromise = options.templateUrl ?
+            $ionicTemplateLoader.load(options.templateUrl) :
+            //options.content: deprecated
+            $q.when(options.template || options.content || '');
+
+
+          if (!this.isShown) {
+            //options.showBackdrop: deprecated
+            this.hasBackdrop = !options.noBackdrop && options.showBackdrop !== false;
+            if (this.hasBackdrop) {
+              $ionicBackdrop.retain();
+            }
+          }
+
+          if (options.duration) {
+            $timeout.cancel(this.durationTimeout);
+            this.durationTimeout = $timeout(
+              angular.bind(this, this.hide),
+              +options.duration
+            );
+          }
+
+          templatePromise.then(function(html) {
+            if (html) {
+              self.element.html(html);
+              $compile(self.element.contents())(self.scope);
+            }
+
+            //Don't show until template changes
+            if (self.isShown) {
+              self.element.addClass('visible');
+              ionic.DomUtil.centerElementByMarginTwice(self.element[0]);
+              ionic.requestAnimationFrame(function() {
+                self.isShown && self.element.addClass('active');
+              });
+            }
+          });
+
+          this.isShown = true;
+        };
+        loader.hide = function() {
+          if (this.isShown) {
+            if (this.hasBackdrop) {
+              $ionicBackdrop.release();
+            }
+            self.element.removeClass('active');
+            setTimeout(function() {
+              !self.isShown && self.element.removeClass('visible');
+            }, 200);
+          }
+          $timeout.cancel(this.durationTimeout);
+          this.isShown = false;
+        };
+
+        return loader;
+      });
+    }
+    return loaderInstance;
+  }
+
+  function showLoader(options) {
+    options || (options = {});
+    var delay = options.delay || options.showDelay || 0;
+
+    //If loading.show() was called previously, cancel it and show with our new options
+    loadingShowDelay && $timeout.cancel(loadingShowDelay);
+    loadingShowDelay = $timeout(angular.noop, delay);
+
+    loadingShowDelay.then(getLoader).then(function(loader) {
+      deregisterBackAction();
+      //Disable hardware back button while loading
+      deregisterBackAction = $ionicPlatform.registerBackButtonAction(
+        angular.noop,
+        PLATFORM_BACK_BUTTON_PRIORITY_LOADING
+      );
+      return loader.show(options);
+    });
+
+    return {
+      hide: deprecated.method(LOADING_HIDE_DEPRECATED, $log.error, hideLoader),
+      show: deprecated.method(LOADING_SHOW_DEPRECATED, $log.error, function() {
+        showLoader(options);
+      }),
+      setContent: deprecated.method(LOADING_SET_DEPRECATED, $log.error, function(content) {
+        getLoader().then(function(loader) {
+          loader.show({ template: content });
+        });
+      })
+    };
+  }
+
+  function hideLoader() {
+    deregisterBackAction();
+    $timeout.cancel(loadingShowDelay);
+    getLoader().then(function(loader) {
+      loader.hide();
+    });
+  }
+}]);
 
 /**
  * @ngdoc service
@@ -32715,7 +38637,9 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
  * ```html
  * <script id="my-modal.html" type="text/ng-template">
  *   <div class="modal">
- *     <ion-header-bar title="My Modal Title"></ion-header-bar>
+ *     <ion-header-bar>
+ *       <h1 class="title">My Modal title</h1>
+ *     </ion-header-bar>
  *     <ion-content>
  *       Hello!
  *     </ion-content>
@@ -32744,8 +38668,16 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
  * });
  * ```
  */
-.factory('$ionicModal', ['$rootScope', '$document', '$compile', '$timeout', '$ionicPlatform', '$ionicTemplateLoader',
-                function( $rootScope,   $document,   $compile,   $timeout,   $ionicPlatform,   $ionicTemplateLoader) {
+IonicModule
+.factory('$ionicModal', [
+  '$rootScope',
+  '$document',
+  '$compile',
+  '$timeout',
+  '$ionicPlatform',
+  '$ionicTemplateLoader',
+  '$q',
+function($rootScope, $document, $compile, $timeout, $ionicPlatform, $ionicTemplateLoader, $q) {
 
   /**
    * @ngdoc controller
@@ -32756,6 +38688,9 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
    *
    * Hint: Be sure to call [remove()](#remove) when you are done with each modal
    * to clean it up and avoid memory leaks.
+   *
+   * Note: a modal will broadcast 'modal.shown' and 'modal.hidden' events from its originating
+   * scope, passing in itself as an event argument.
    */
   var ModalView = ionic.views.Modal.inherit({
     /**
@@ -32779,16 +38714,17 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
      * @ngdoc method
      * @name ionicModal#show
      * @description Show this modal instance.
+     * @returns {promise} A promise which is resolved when the modal is finished animating in.
      */
     show: function() {
       var self = this;
       var modalEl = angular.element(self.modalEl);
 
       self.el.classList.remove('hide');
+      $timeout(function(){
+        $document[0].body.classList.add('modal-open');
+      }, 400)
 
-      $document[0].body.classList.add('modal-open');
-
-      self._isShown = true;
 
       if(!self.el.parentElement) {
         modalEl.addClass(self.animation);
@@ -32798,28 +38734,38 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
       modalEl.addClass('ng-enter active')
              .removeClass('ng-leave ng-leave-active');
 
-      $timeout(function(){
-        modalEl.addClass('ng-enter-active');
-        self.scope.$parent && self.scope.$parent.$broadcast('modal.shown');
-        self.el.classList.add('active');
-      }, 20);
-
+      self._isShown = true;
       self._deregisterBackButton = $ionicPlatform.registerBackButtonAction(function(){
         self.hide();
       }, 200);
+      self._isOpenPromise = $q.defer();
 
       ionic.views.Modal.prototype.show.call(self);
 
+      $timeout(function(){
+        modalEl.addClass('ng-enter-active');
+        self.scope.$parent && self.scope.$parent.$broadcast('modal.shown', self);
+        self.el.classList.add('active');
+      }, 20);
+
+      return $timeout(function() {
+        //After animating in, allow hide on backdrop click
+        self.$el.on('click', function(e) {
+          if (e.target === self.el) {
+            self.hide();
+          }
+        });
+      }, 400);
     },
 
     /**
      * @ngdoc method
      * @name ionicModal#hide
      * @description Hide this modal instance.
+     * @returns {promise} A promise which is resolved when the modal is finished animating out.
      */
     hide: function() {
       var self = this;
-      self._isShown = false;
       var modalEl = angular.element(self.modalEl);
 
       self.el.classList.remove('active');
@@ -32830,32 +38776,33 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
                .removeClass('ng-enter ng-enter-active active');
       }, 20);
 
-      $timeout(function(){
-        $document[0].body.classList.remove('modal-open');
-        self.el.classList.add('hide');
-      }, 350);
+      self.$el.off('click');
+      self._isShown = false;
+      self.scope.$parent && self.scope.$parent.$broadcast('modal.hidden', self);
+      self._deregisterBackButton && self._deregisterBackButton();
 
       ionic.views.Modal.prototype.hide.call(self);
 
-      self.scope.$parent && self.scope.$parent.$broadcast('modal.hidden');
-
-      self._deregisterBackButton && self._deregisterBackButton();
+      return $timeout(function(){
+        $document[0].body.classList.remove('modal-open');
+        self.el.classList.add('hide');
+      }, 500);
     },
 
     /**
      * @ngdoc method
      * @name ionicModal#remove
      * @description Remove this modal instance from the DOM and clean up.
+     * @returns {promise} A promise which is resolved when the modal is finished animating out.
      */
     remove: function() {
       var self = this;
-      self.hide();
-      self.scope.$parent && self.scope.$parent.$broadcast('modal.removed');
+      self.scope.$parent && self.scope.$parent.$broadcast('modal.removed', self);
 
-      $timeout(function(){
+      return self.hide().then(function() {
         self.scope.$destroy();
-        self.el && self.el.parentElement && self.el.parentElement.removeChild(self.el);
-      }, 750);
+        self.$el.remove();
+      });
     },
 
     /**
@@ -32872,9 +38819,19 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
     // Create a new scope for the modal
     var scope = options.scope && options.scope.$new() || $rootScope.$new(true);
 
+    angular.extend(scope, {
+      $hasHeader: false,
+      $hasSubheader: false,
+      $hasFooter: false,
+      $hasSubfooter: false,
+      $hasTabs: false,
+      $hasTabsTop: false
+    });
+
     // Compile the template
     var element = $compile('<ion-modal>' + templateString + '</ion-modal>')(scope);
 
+    options.$el = element;
     options.el = element[0];
     options.modalEl = options.el.querySelector('.modal');
     var modal = new ModalView(options);
@@ -32929,10 +38886,115 @@ angular.module('ionic.service.modal', ['ionic.service.templateLoad', 'ionic.serv
   };
 }]);
 
-(function(ionic) {'use strict';
 
-angular.module('ionic.service.platform', [])
+/**
+ * @ngdoc service
+ * @name $ionicNavBarDelegate
+ * @module ionic
+ * @description
+ * Delegate for controlling the {@link ionic.directive:ionNavBar} directive.
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-controller="MyCtrl">
+ *   <ion-nav-bar>
+ *     <button ng-click="setNavTitle('banana')">
+ *       Set title to banana!
+ *     </button>
+ *   </ion-nav-bar>
+ * </body>
+ * ```
+ * ```js
+ * function MyCtrl($scope, $ionicNavBarDelegate) {
+ *   $scope.setNavTitle = function(title) {
+ *     $ionicNavBarDelegate.setTitle(title);
+ *   }
+ * }
+ * ```
+ */
+IonicModule
+.service('$ionicNavBarDelegate', delegateService([
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#back
+   * @description Goes back in the view history.
+   * @param {DOMEvent=} event The event object (eg from a tap event)
+   */
+  'back',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#align
+   * @description Aligns the title with the buttons in a given direction.
+   * @param {string=} direction The direction to the align the title text towards.
+   * Available: 'left', 'right', 'center'. Default: 'center'.
+   */
+  'align',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#showBackButton
+   * @description
+   * Set/get whether the {@link ionic.directive:ionNavBackButton} is shown
+   * (if it exists).
+   * @param {boolean=} show Whether to show the back button.
+   * @returns {boolean} Whether the back button is shown.
+   */
+  'showBackButton',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#showBar
+   * @description
+   * Set/get whether the {@link ionic.directive:ionNavBar} is shown.
+   * @param {boolean} show Whether to show the bar.
+   * @returns {boolean} Whether the bar is shown.
+   */
+  'showBar',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#setTitle
+   * @description
+   * Set the title for the {@link ionic.directive:ionNavBar}.
+   * @param {string} title The new title to show.
+   */
+  'setTitle',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#changeTitle
+   * @description
+   * Change the title, transitioning the new title in and the old one out in a given direction.
+   * @param {string} title The new title to show.
+   * @param {string} direction The direction to transition the new title in.
+   * Available: 'forward', 'back'.
+   */
+  'changeTitle',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#getTitle
+   * @returns {string} The current title of the navbar.
+   */
+  'getTitle',
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#getPreviousTitle
+   * @returns {string} The previous title of the navbar.
+   */
+  'getPreviousTitle'
+  /**
+   * @ngdoc method
+   * @name $ionicNavBarDelegate#$getByHandle
+   * @param {string} handle
+   * @returns `delegateInstance` A delegate instance that controls only the
+   * navBars with delegate-handle matching the given handle.
+   *
+   * Example: `$ionicNavBarDelegate.$getByHandle('myHandle').setTitle('newTitle')`
+   */
+]));
 
+var PLATFORM_BACK_BUTTON_PRIORITY_VIEW = 100;
+var PLATFORM_BACK_BUTTON_PRIORITY_SIDE_MENU = 150;
+var PLATFORM_BACK_BUTTON_PRIORITY_ACTION_SHEET = 300;
+var PLATFORM_BACK_BUTTON_PRIORITY_POPUP = 400;
+var PLATFORM_BACK_BUTTON_PRIORITY_LOADING = 500;
 /**
  * @ngdoc service
  * @name $ionicPlatform
@@ -32943,11 +39005,12 @@ angular.module('ionic.service.platform', [])
  * Used to detect the current platform, as well as do things like override the
  * Android back button in PhoneGap/Cordova.
  */
+IonicModule
 .provider('$ionicPlatform', function() {
 
   return {
     $get: ['$q', '$rootScope', function($q, $rootScope) {
-      return {
+      var self = {
         /**
          * @ngdoc method
          * @name $ionicPlatform#onHardwareBackButton
@@ -32996,12 +39059,12 @@ angular.module('ionic.service.platform', [])
          * @returns {function} A function that, when called, will deregister
          * this backButtonAction.
          */
+        $backButtonActions: {},
         registerBackButtonAction: function(fn, priority, actionId) {
-          var self = this;
 
           if(!self._hasBackButtonHandler) {
             // add a back button listener if one hasn't been setup yet
-            $rootScope.$backButtonActions = {};
+            self.$backButtonActions = {};
             self.onHardwareBackButton(self.hardwareBackButtonClick);
             self._hasBackButtonHandler = true;
           }
@@ -33011,11 +39074,11 @@ angular.module('ionic.service.platform', [])
             priority: (priority ? priority : 0),
             fn: fn
           };
-          $rootScope.$backButtonActions[action.id] = action;
+          self.$backButtonActions[action.id] = action;
 
           // return a function to de-register this back button action
           return function() {
-            delete $rootScope.$backButtonActions[action.id];
+            delete self.$backButtonActions[action.id];
           };
         },
 
@@ -33026,9 +39089,9 @@ angular.module('ionic.service.platform', [])
           // loop through all the registered back button actions
           // and only run the last one of the highest priority
           var priorityAction, actionId;
-          for(actionId in $rootScope.$backButtonActions) {
-            if(!priorityAction || $rootScope.$backButtonActions[actionId].priority >= priorityAction.priority) {
-              priorityAction = $rootScope.$backButtonActions[actionId];
+          for(actionId in self.$backButtonActions) {
+            if(!priorityAction || self.$backButtonActions[actionId].priority >= priorityAction.priority) {
+              priorityAction = self.$backButtonActions[actionId];
             }
           }
           if(priorityAction) {
@@ -33047,30 +39110,39 @@ angular.module('ionic.service.platform', [])
          * @description
          * Trigger a callback once the device is ready,
          * or immediately if the device is already ready.
-         * @param {function} callback The function to call.
+         * @param {function=} callback The function to call.
+         * @returns {promise} A promise which is resolved when the device is ready.
          */
         ready: function(cb) {
           var q = $q.defer();
 
           ionic.Platform.ready(function(){
             q.resolve();
-            cb();
+            cb && cb();
           });
 
           return q.promise;
         }
       };
+      return self;
     }]
   };
 
 });
 
-})(ionic);
 
-(function(ionic) {
-'use strict';
-
-angular.module('ionic.service.popup', ['ionic.service.templateLoad'])
+var POPUP_TPL =
+  '<div class="popup">' +
+    '<div class="popup-head">' +
+      '<h3 class="popup-title" ng-bind-html="title"></h3>' +
+      '<h5 class="popup-sub-title" ng-bind-html="subTitle" ng-if="subTitle"></h5>' +
+    '</div>' +
+    '<div class="popup-body">' +
+    '</div>' +
+    '<div class="popup-buttons row">' +
+      '<button ng-repeat="button in buttons" ng-click="$buttonTapped(button, $event)" class="button col" ng-class="button.type || \'button-default\'" ng-bind-html="button.text"></button>' +
+    '</div>' +
+  '</div>';
 
 /**
  * @ngdoc service
@@ -33080,575 +39152,1012 @@ angular.module('ionic.service.popup', ['ionic.service.templateLoad'])
  * @codepen zkmhJ
  * @description
  *
- * The Ionic Popup service makes it easy to programatically create and show popup
- * windows that require the user to respond in order to continue:
+ * The Ionic Popup service allows programmatically creating and showing popup
+ * windows that require the user to respond in order to continue.
  *
- * The popup system has support for nicer versions of the built in `alert()` `prompt()` and `confirm()` functions
- * you are used to in the browser, but with more powerful support for customizing input types in the case of
- * prompt, or customizing the look of the window.
- *
- * But the true power of the Popup is when a built-in popup just won't cut it. Luckily, the popup window
- * has full support for arbitrary popup content, and a simple promise-based system for returning data
- * entered by the user.
+ * The popup system has support for more flexible versions of the built in `alert()`, `prompt()`,
+ * and `confirm()` functions that users are used to, in addition to allowing popups with completely
+ * custom content and look.
  *
  * @usage
- * To trigger a Popup in your code, use the $ionicPopup service in your angular controllers:
+ * A few basic examples, see below for details about all of the options available.
  *
  * ```js
  * angular.module('mySuperApp', ['ionic'])
- * .controller(function($scope, $ionicPopup) {
+ * .controller(function($scope, $ionicPopup, $timeout) {
  *
  *  // Triggered on a button click, or some other target
-    $scope.showPopup = function() {
-      $scope.data = {}
-
-      // An elaborate, custom popup
-      $ionicPopup.show({
-        templateUrl: 'popup-template.html',
-        title: 'Enter Wi-Fi Password',
-        subTitle: 'Please use normal things',
-        scope: $scope,
-        buttons: [
-          { text: 'Cancel', onTap: function(e) { return true; } },
-          {
-            text: '<b>Save</b>',
-            type: 'button-positive',
-            onTap: function(e) {
-              return $scope.data.wifi;
-            }
-          },
-        ]
-      }).then(function(res) {
-        console.log('Tapped!', res);
-      }, function(err) {
-        console.log('Err:', err);
-      }, function(popup) {
-        // If you need to access the popup directly, do it in the notify method
-        // This is also where you can programatically close the popup:
-        // popup.close();
-      });
-
-      // A confirm dialog
-      $scope.showConfirm = function() {
-        $ionicPopup.confirm({
-          title: 'Consume Ice Cream',
-          content: 'Are you sure you want to eat this ice cream?'
-        }).then(function(res) {
-          if(res) {
-            console.log('You are sure');
-          } else {
-            console.log('You are not sure');
-          }
-        });
-      };
-
-      // A prompt dialog
-      $scope.showPrompt = function() {
-        $ionicPopup.prompt({
-          title: 'ID Check',
-          content: 'What is your name?'
-        }).then(function(res) {
-          console.log('Your name is', res);
-        });
-      };
-
-      // A prompt with password input dialog
-      $scope.showPasswordPrompt = function() {
-        $ionicPopup.prompt({
-          title: 'Password Check',
-          content: 'Enter your secret password',
-          inputType: 'password',
-          inputPlaceholder: 'Your password'
-        }).then(function(res) {
-          console.log('Your password is', res);
-        });
-      };
-
-      // An alert dialog
-      $scope.showAlert = function() {
-        $ionicPopup.alert({
-          title: 'Don\'t eat that!',
-          content: 'It might taste good'
-        }).then(function(res) {
-          console.log('Thank you for not eating my delicious ice cream cone');
-        });
-      };
-    };
-  });
-  ```
-
-
+ *  $scope.showPopup = function() {
+ *    $scope.data = {}
+ *
+ *    // An elaborate, custom popup
+ *    var myPopup = $ionicPopup.show({
+ *      template: '<input type="password" ng-model="data.wifi">',
+ *      title: 'Enter Wi-Fi Password',
+ *      subTitle: 'Please use normal things',
+ *      scope: $scope,
+ *      buttons: [
+ *        { text: 'Cancel' },
+ *        {
+ *          text: '<b>Save</b>',
+ *          type: 'button-positive',
+ *          onTap: function(e) {
+ *            if (!$scope.data.wifi) {
+ *              //don't allow the user to close unless he enters wifi password
+ *              e.preventDefault();
+ *            } else {
+ *              return $scope.data.wifi;
+ *            }
+ *          }
+ *        },
+ *      ]
+ *    });
+ *    myPopup.then(function(res) {
+ *      console.log('Tapped!', res);
+ *    });
+ *    $timeout(function() {
+ *       myPopup.close(); //close the popup after 3 seconds for some reason
+ *    }, 3000);
+ *
+ *    // A confirm dialog
+ *    $scope.showConfirm = function() {
+ *      var confirmPopup = $ionicPopup.confirm({
+ *        title: 'Consume Ice Cream',
+ *        template: 'Are you sure you want to eat this ice cream?'
+ *      });
+ *      confirmPopup.then(function(res) {
+ *        if(res) {
+ *          console.log('You are sure');
+ *        } else {
+ *          console.log('You are not sure');
+ *        }
+ *      });
+ *    };
+ *
+ *    // An alert dialog
+ *    $scope.showAlert = function() {
+ *      var alertPopup = $ionicPopup.alert({
+ *        title: 'Don\'t eat that!',
+ *        template: 'It might taste good'
+ *      });
+ *      alertPopup.then(function(res) {
+ *        console.log('Thank you for not eating my delicious ice cream cone');
+ *      });
+ *    };
+ *  };
+ *});
+ *```
  */
-.factory('$ionicPopup', ['$rootScope', '$q', '$document', '$compile', '$timeout', '$ionicTemplateLoader',
-  function($rootScope, $q, $document, $compile, $timeout, $ionicTemplateLoader) {
-
-  // TODO: Make this configurable
-  var popupOptions = {
-    // How long to wait after a popup is already shown to show another one
+IonicModule
+.factory('$ionicPopup', [
+  '$ionicTemplateLoader',
+  '$ionicBackdrop',
+  '$q',
+  '$timeout',
+  '$rootScope',
+  '$document',
+  '$compile',
+  '$ionicPlatform',
+function($ionicTemplateLoader, $ionicBackdrop, $q, $timeout, $rootScope, $document, $compile, $ionicPlatform) {
+  //TODO allow this to be configured
+  var config = {
     stackPushDelay: 50
-  }
-
-  // Center the given popup
-  var positionPopup = function(popup) {
-    popup.el.style.marginLeft = (-popup.el.offsetWidth) / 2 + 'px';
-    popup.el.style.marginTop = (-popup.el.offsetHeight) / 2 + 'px';
   };
-
-  // Hide the body of the given popup if it's empty
-  var hideBody = function(popup) {
-    var bodyEl = popup.el.querySelector('.popup-body');
-    if(bodyEl && bodyEl.innerHTML.trim() == '') {
-      bodyEl.style.display = 'none';
-    }
-  };
-
-  var focusLastButton = function(popup) {
-    var buttons, lastButton;
-    buttons = popup.el.querySelectorAll('button');
-    lastButton = buttons[buttons.length-1];
-    if(lastButton) {
-      lastButton.focus();
-    }
-  }
-
-  // Show a single popup
-  var showSinglePopup = function(popup, opts) {
-    var _this = this;
-
-    ionic.requestAnimationFrame(function() {
-      hideBody(popup);
-      positionPopup(popup);
-      popup.el.classList.remove('popup-hidden');
-      popup.el.classList.add('popup-showing');
-      popup.el.classList.add('active');
-
-      focusLastButton(popup);
-    });
-  };
-
-  // Show a popup that was already shown at one point in the past
-  var reshowSinglePopup = function(popup) {
-    ionic.requestAnimationFrame(function() {
-      popup.el.classList.remove('popup-hidden');
-      popup.el.classList.add('popup-showing');
-      popup.el.classList.add('active');
-      focusLastButton(popup);
-    });
-  };
-
-  // Hide a single popup
-  var hideSinglePopup = function(popup) {
-    ionic.requestAnimationFrame(function() {
-      popup.el.classList.remove('active');
-      popup.el.classList.add('popup-hidden');
-    });
-  };
-
-  // Remove a popup once and for all
-  var removeSinglePopup = function(popup) {
-    // Force a reflow so the animation will actually run
-    popup.el.offsetWidth;
-
-    popup.el.classList.remove('active');
-    popup.el.classList.add('popup-hidden');
-
-    $timeout(function() {
-      popup.el.remove();
-    }, 400);
-  };
-
-
-  /**
-   * Popup stack and directive
-   */
-
   var popupStack = [];
-  var backdropEl = null;
-
-  // Show the backdrop element
-  var showBackdrop = function() {
-    var el = $compile('<ion-popup-backdrop></ion-popup-backdrop>')($rootScope.$new(true));
-    $document[0].body.appendChild(el[0]);
-    backdropEl = el;
-    $document[0].body.classList.add('popup-open');
-  };
-
-  // Remove the backdrop element
-  var removeBackdrop = function() {
-    backdropEl.remove();
-    $timeout(function(){
-      $document[0].body.classList.remove('popup-open');
-    }, 300);
-  };
-
-  // Push the new popup onto the stack with the given data and scope.
-  // If this is the first one in the stack, show the backdrop, otherwise don't.
-  var pushAndShow = function(popup, data) {
-    var lastPopup = popupStack[popupStack.length-1];
-
-    popupStack.push(popup);
-
-    // If this is the first popup, show the backdrop
-    if(popupStack.length == 1) {
-      showBackdrop();
-    }
-
-    // If we have an existing popup, add a delay between hiding and showing it
-    if(lastPopup) {
-      hideSinglePopup(lastPopup);
-      $timeout(function() {
-        showSinglePopup(popup);
-      }, popupOptions.stackPushDelay);
-    } else {
-      // Otherwise, immediately show it
-      showSinglePopup(popup);
-    }
-
-  };
-
-  // Pop the current popup off the stack. If there are other popups, show them
-  // otherwise hide the backdrop.
-  var popAndRemove = function(popup) {
-    var lastPopup = popupStack.pop();
-    var nextPopup = popupStack[popupStack.length-1];
-    removeSinglePopup(lastPopup);
-
-    if(nextPopup) {
-      reshowSinglePopup(nextPopup);
-    } else {
-      removeBackdrop();
-    }
-  };
-
-  // Append the element to the screen, create the popup view,
-  // and add the popup to the scope
-  var constructPopupOnScope = function(element, scope) {
-    var popup = {
-      el: element[0],
-      scope: scope,
-      close: function() {
-        popAndRemove(this);
-      }
-    };
-
-    scope.popup = popup;
-
-    return popup;
-  }
-
-  var buildPopupTemplate = function(opts, content) {
-    return '<ion-popup title="' + opts.title + '" buttons="buttons" on-button-tap="onButtonTap(button, event)" on-close="onClose(button, result, event)">'
-        + (content || '') +
-      '</ion-popup>';
-  };
-
-
-  // Given an options object, build a new popup window and return a promise
-  // which will contain the constructed popup at a later date. Perhaps at a later
-  // year even. At this point, it's hard to say.
-  var createPopup = function(opts, responseDeferred) {
-    var q = $q.defer();
-
-    // Create some defaults
-    var defaults = {
-      title: '',
-      animation: 'fade-in',
-    };
-
-    opts = angular.extend(defaults, opts);
-
-    // Create a new scope, and bind some of the options stuff to that scope
-    var scope = opts.scope && opts.scope.$new() || $rootScope.$new(true);
-    angular.extend(scope, opts);
-
-    scope.onClose = function(button, result, event) {
-      popAndRemove(scope.popup);
-      responseDeferred.resolve(result);
-    };
-
-    // Check if we need to load a template for the content of the popup
-    if(opts.templateUrl) {
-
-      // Load the template externally
-      $ionicTemplateLoader.load(opts.templateUrl).then(function(templateString) {
-
-        var popupTemplate = buildPopupTemplate(opts, templateString);
-        var element = $compile(popupTemplate)(scope);
-        $document[0].body.appendChild(element[0]);
-        q.resolve(constructPopupOnScope(element, scope));
-
-      }, function(err) {
-        // Error building the popup
-        q.reject(err);
-      });
-
-    } else {
-      // Compile the template
-      var popupTemplate = buildPopupTemplate(opts, opts.content);
-      var element = $compile(popupTemplate)(scope);
-      $document[0].body.appendChild(element[0]);
-      q.resolve(constructPopupOnScope(element, scope));
-    }
-
-    return q.promise;
-  };
-
-
-
-  // Public API
-  return {
-    /**
-     * @private
-     */
-    showPopup: function(data) {
-      var q = $q.defer();
-
-      createPopup(data, q).then(function(popup, scope) {
-
-        // Send the popup back
-        q.notify(popup);
-
-        // We constructed the popup, push it on the stack and show it
-        pushAndShow(popup, data);
-
-      }, function(err) {
-        void 0;
-      });
-
-      return q.promise;
-    },
-
+  var $ionicPopup = {
     /**
      * @ngdoc method
+     * @description
+     * Show a complex popup. This is the master show function for all popups.
+     *
+     * A complex popup has a `buttons` array, with each button having a `text` and `type`
+     * field, in addition to an `onTap` function.  The `onTap` function, called when
+     * the correspondingbutton on the popup is tapped, will by default close the popup
+     * and resolve the popup promise with its return value.  If you wish to prevent the
+     * default and keep the popup open on button tap, call `event.preventDefault()` on the
+     * passed in tap event.  Details below.
+     *
      * @name $ionicPopup#show
-     * @description show a complex popup. This is the master show function for all popups
-     * @param {data} object The options for showing a popup, of the form:
-     * @returns {Promise} an Angular promise which resolves when the user enters the correct data, and also
-     * sends the constructed popup in the notify function (for programatic closing, as shown in the example above).
+     * @param {object} options The options for the new popup, of the form:
+     *
      * ```
      * {
-     *   content: '', // String. The content of the popup
-     *   title: '', // String. The title of the popup
-     *   subTitle: '', // String (optional). The sub-title of the popup
-     *   templateUrl: '', // URL String (optional). The URL of a template to load as the content (instead of the `content` field)
-     *   scope: null, // Scope (optional). A scope to apply to the popup content (for using ng-model in a template, for example)
-     *   buttons:
-     *     [
-     *       {
-     *         text: 'Cancel',
-     *         type: 'button-default',
-     *         onTap: function(e) {
-     *           // e.preventDefault() is the only way to return a false value
-     *           e.preventDefault();
-     *         }
-     *       },
-     *       {
-     *         text: 'OK',
-     *         type: 'button-positive',
-     *         onTap: function(e) {
-     *           // When the user taps one of the buttons, you need to return the
-     *           // Data you want back to the popup service which will then resolve
-     *           // the promise waiting for a response.
-     *           //
-     *           // To return "false", call e.preventDefault();
-     *           return scope.data.response;
-     *         }
-     *       }
-     *     ]
-     *
+     *   title: '', // String. The title of the popup.
+     *   subTitle: '', // String (optional). The sub-title of the popup.
+     *   template: '', // String (optional). The html template to place in the popup body.
+     *   templateUrl: '', // String (optional). The URL of an html template to place in the popup   body.
+     *   scope: null, // Scope (optional). A scope to link to the popup content.
+     *   buttons: [{ //Array[Object] (optional). Buttons to place in the popup footer.
+     *     text: 'Cancel',
+     *     type: 'button-default',
+     *     onTap: function(e) {
+     *       // e.preventDefault() will stop the popup from closing when tapped.
+     *       e.preventDefault();
+     *     }
+     *   }, {
+     *     text: 'OK',
+     *     type: 'button-positive',
+     *     onTap: function(e) {
+     *       // Returning a value will cause the promise to resolve with the given value.
+     *       return scope.data.response;
+     *     }
+     *   }]
      * }
      * ```
-    */
-    show: function(data) {
-      return this.showPopup(data);
-    },
+     *
+     * @returns {object} A promise which is resolved when the popup is closed. Has an additional
+     * `close` function, which can be used to programmatically close the popup.
+     */
+    show: showPopup,
 
     /**
      * @ngdoc method
      * @name $ionicPopup#alert
-     * @description show a simple popup with one button that the user has to tap
+     * @description Show a simple alert popup with a message and one button that the user can
+     * tap to close the popup.
      *
-     * Show a simple alert dialog
-     *
-     * ```javascript
-     *  $ionicPopup.alert({
-     *    title: 'Hey!',
-     *    content: 'Don\'t do that!'
-     *  }).then(function(res) {
-     *    // Accepted
-     *  });
-     * ```
-     *
-     * @returns {Promise} that resolves when the alert is accepted
-     * @param {data} object The options for showing an alert, of the form:
+     * @param {object} options The options for showing the alert, of the form:
      *
      * ```
      * {
-     *   content: '', // String. The content of the popup
-     *   title: '', // String. The title of the popup
-     *   okText: '', // String. The text of the OK button
-     *   okType: '', // String (default: button-positive). The type of the OK button
+     *   title: '', // String. The title of the popup.
+     *   subTitle: '', // String (optional). The sub-title of the popup.
+     *   template: '', // String (optional). The html template to place in the popup body.
+     *   templateUrl: '', // String (optional). The URL of an html template to place in the popup   body.
+     *   okText: '', // String (default: 'OK'). The text of the OK button.
+     *   okType: '', // String (default: 'button-positive'). The type of the OK button.
      * }
      * ```
-    */
-    alert: function(opts) {
-      return this.showPopup({
-        content: opts.content || '',
-        title: opts.title || '',
-        buttons: [
-          {
-            text: opts.okText || 'OK',
-            type: opts.okType || 'button-positive',
-            onTap: function(e) {
-              return true;
-            }
-          }
-        ]
-      });
-    },
+     *
+     * @returns {object} A promise which is resolved when the popup is closed. Has one additional
+     * function `close`, which can be called with any value to programmatically close the popup
+     * with the given value.
+     */
+    alert: showAlert,
 
     /**
      * @ngdoc method
      * @name $ionicPopup#confirm
      * @description
-     * Show a simple confirm popup with a cancel and accept button:
+     * Show a simple confirm popup with a Cancel and OK button.
      *
-     * ```javascript
-     *  $ionicPopup.confirm({
-     *    title: 'Consume Ice Cream',
-     *    content: 'Are you sure you want to eat this ice cream?'
-     *  }).then(function(res) {
-     *    if(res) {
-     *      console.log('You are sure');
-     *    } else {
-     *      console.log('You are not sure');
-     *    }
-     *  });
-     * ```
+     * Resolves the promise with true if the user presses the OK button, and false if the
+     * user presses the Cancel button.
      *
-     * @returns {Promise} that resolves with the chosen option
-     * @param {data} object The options for showing a confirm dialog, of the form:
+     * @param {object} options The options for showing the confirm popup, of the form:
      *
      * ```
      * {
-     *   content: '', // String. The content of the popup
-     *   title: '', // String. The title of the popup
-     *   cancelText: '', // String. The text of the Cancel button
-     *   cancelType: '', // String (default: button-default). The type of the kCancel button
-     *   okText: '', // String. The text of the OK button
-     *   okType: '', // String (default: button-positive). The type of the OK button
+     *   title: '', // String. The title of the popup.
+     *   subTitle: '', // String (optional). The sub-title of the popup.
+     *   template: '', // String (optional). The html template to place in the popup body.
+     *   templateUrl: '', // String (optional). The URL of an html template to place in the popup   body.
+     *   cancelText: '', // String (default: 'Cancel'). The text of the Cancel button.
+     *   cancelType: '', // String (default: 'button-default'). The type of the Cancel button.
+     *   okText: '', // String (default: 'OK'). The text of the OK button.
+     *   okType: '', // String (default: 'button-positive'). The type of the OK button.
      * }
      * ```
-    */
-    confirm: function(opts) {
-      return this.showPopup({
-        content: opts.content || '',
-        title: opts.title || '',
-        buttons: [
-          {
-            text: opts.cancelText || 'Cancel' ,
-            type: opts.cancelType || 'button-default',
-            onTap: function(e) { e.preventDefault(); }
-          },
-          {
-            text: opts.okText || 'OK',
-            type: opts.okType || 'button-positive',
-            onTap: function(e) {
-              return true;
-            }
-          }
-        ]
-      });
-    },
+     *
+     * @returns {object} A promise which is resolved when the popup is closed. Has one additional
+     * function `close`, which can be called with any value to programmatically close the popup
+     * with the given value.
+     */
+    confirm: showConfirm,
 
     /**
      * @ngdoc method
      * @name $ionicPopup#prompt
-     * @description show a simple prompt dialog.
+     * @description Show a simple prompt popup, which has an input, OK button, and Cancel button.
+     * Resolves the promise with the value of the input if the user presses OK, and with undefined
+     * if the user presses Cancel.
      *
      * ```javascript
      *  $ionicPopup.prompt({
      *    title: 'Password Check',
-     *    content: 'Enter your secret password',
+     *    template: 'Enter your secret password',
      *    inputType: 'password',
      *    inputPlaceholder: 'Your password'
      *  }).then(function(res) {
      *    console.log('Your password is', res);
      *  });
      * ```
-     *
-     * @returns {Promise} that resolves with the entered data
-     * @param {data} object The options for showing a prompt dialog, of the form:
+     * @param {object} options The options for showing the prompt popup, of the form:
      *
      * ```
      * {
-     *   content: // String. The content of the popup
-     *   title: // String. The title of the popup
-     *   subTitle: // String. The sub title of the popup
-     *   inputType: // String (default: "text"). The type of input to use
-     *   inputPlaceholder: // String (default: ""). A placeholder to use for the input.
-     *   cancelText: // String. The text of the Cancel button
-     *   cancelType: // String (default: button-default). The type of the kCancel button
-     *   okText: // String. The text of the OK button
-     *   okType: // String (default: button-positive). The type of the OK button
+     *   title: '', // String. The title of the popup.
+     *   subTitle: '', // String (optional). The sub-title of the popup.
+     *   template: '', // String (optional). The html template to place in the popup body.
+     *   templateUrl: '', // String (optional). The URL of an html template to place in the popup   body.
+     *   inputType: // String (default: 'text'). The type of input to use
+     *   inputPlaceholder: // String (default: ''). A placeholder to use for the input.
+     *   cancelText: // String (default: 'Cancel'. The text of the Cancel button.
+     *   cancelType: // String (default: 'button-default'). The type of the Cancel button.
+     *   okText: // String (default: 'OK'). The text of the OK button.
+     *   okType: // String (default: 'button-positive'). The type of the OK button.
      * }
      * ```
-    */
-    prompt: function(opts) {
-      var scope = $rootScope.$new(true);
-      scope.data = {};
-      return this.showPopup({
-        content: opts.content || '<input ng-model="data.response" type="' + (opts.inputType || 'text') + '" placeholder="' + (opts.inputPlaceholder || '') + '">',
-        title: opts.title || '',
-        subTitle: opts.subTitle || '',
-        scope: scope,
-        buttons: [
-          {
-            text: opts.cancelText || 'Cancel',
-            type: opts.cancelType|| 'button-default',
-            onTap: function(e) { e.preventDefault(); }
-          },
-          {
-            text: opts.okText || 'OK',
-            type: opts.okType || 'button-positive',
-            onTap: function(e) {
-              return scope.data.response;
-            }
+     *
+     * @returns {object} A promise which is resolved when the popup is closed. Has one additional
+     * function `close`, which can be called with any value to programmatically close the popup
+     * with the given value.
+     */
+    prompt: showPrompt,
+    /**
+     * @private for testing
+     */
+    _createPopup: createPopup,
+    _popupStack: popupStack
+  };
+
+  return $ionicPopup;
+
+  function createPopup(options) {
+    options = angular.extend({
+      scope: null,
+      title: '',
+      buttons: [],
+    }, options || {});
+
+    var popupPromise = $ionicTemplateLoader.compile({
+      template: POPUP_TPL,
+      scope: options.scope && options.scope.$new(),
+      appendTo: $document[0].body
+    });
+    var contentPromise = options.templateUrl ?
+      $ionicTemplateLoader.load(options.templateUrl) :
+      $q.when(options.template || options.content || '');
+
+    return $q.all([popupPromise, contentPromise])
+    .then(function(results) {
+      var self = results[0];
+      var content = results[1];
+      var responseDeferred = $q.defer();
+
+      self.responseDeferred = responseDeferred;
+
+      //Can't ng-bind-html for popup-body because it can be insecure html
+      //(eg an input in case of prompt)
+      var body = angular.element(self.element[0].querySelector('.popup-body'));
+      if (content) {
+        body.html(content);
+        $compile(body.contents())(self.scope);
+      } else {
+        body.remove();
+      }
+
+      angular.extend(self.scope, {
+        title: options.title,
+        buttons: options.buttons,
+        subTitle: options.subTitle,
+        $buttonTapped: function(button, event) {
+          var result = (button.onTap || angular.noop)(event);
+          event = event.originalEvent || event; //jquery events
+
+          if (!event.defaultPrevented) {
+            responseDeferred.resolve(result);
           }
-        ]
+        }
       });
+
+      self.show = function() {
+        if (self.isShown) return;
+
+        self.isShown = true;
+        ionic.requestAnimationFrame(function() {
+          //if hidden while waiting for raf, don't show
+          if (!self.isShown) return;
+
+          self.element.removeClass('popup-hidden');
+          self.element.addClass('popup-showing active');
+          ionic.DomUtil.centerElementByMarginTwice(self.element[0]);
+          focusInputOrButton(self.element);
+        });
+      };
+      self.hide = function(callback) {
+        callback = callback || angular.noop;
+        if (!self.isShown) return callback();
+
+        self.isShown = false;
+        self.element.removeClass('active');
+        self.element.addClass('popup-hidden');
+        $timeout(callback, 250);
+      };
+      self.remove = function() {
+        if (self.removed) return;
+
+        self.hide(function() {
+          self.element.remove();
+          self.scope.$destroy();
+        });
+
+        self.removed = true;
+      };
+
+      return self;
+    });
+  }
+
+  function onHardwareBackButton(e) {
+    popupStack[0] && popupStack[0].responseDeferred.resolve();
+  }
+
+  function showPopup(options) {
+    var popupPromise = $ionicPopup._createPopup(options);
+    var previousPopup = popupStack[0];
+
+    if (previousPopup) {
+      previousPopup.hide();
     }
 
-  };
+    var resultPromise = $timeout(angular.noop, previousPopup ? config.stackPushDelay : 0)
+    .then(function() { return popupPromise; })
+    .then(function(popup) {
+      if (!previousPopup) {
+        //Add popup-open & backdrop if this is first popup
+        document.body.classList.add('popup-open');
+        $ionicBackdrop.retain();
+        $ionicPopup._backButtonActionDone = $ionicPlatform.registerBackButtonAction(
+          onHardwareBackButton,
+          PLATFORM_BACK_BUTTON_PRIORITY_POPUP
+        );
+      }
+      popupStack.unshift(popup);
+      popup.show();
+
+      //DEPRECATED: notify the promise with an object with a close method
+      popup.responseDeferred.notify({
+        close: resultPromise.close
+      });
+
+      return popup.responseDeferred.promise.then(function(result) {
+        var index = popupStack.indexOf(popup);
+        if (index !== -1) {
+          popupStack.splice(index, 1);
+        }
+        popup.remove();
+
+        var previousPopup = popupStack[0];
+        if (previousPopup) {
+          previousPopup.show();
+        } else {
+          //Remove popup-open & backdrop if this is last popup
+          document.body.classList.remove('popup-open');
+          $ionicBackdrop.release();
+          ($ionicPopup._backButtonActionDone || angular.noop)();
+        }
+
+        return result;
+      });
+    });
+
+    function close(result) {
+      popupPromise.then(function(popup) {
+        if (!popup.removed) {
+          popup.responseDeferred.resolve(result);
+        }
+      });
+    }
+    resultPromise.close = close;
+
+    return resultPromise;
+  }
+
+  function focusInputOrButton(element) {
+    var inputs = element[0].querySelectorAll('input');
+    if (!inputs.length) {
+      inputs = element[0].querySelectorAll('button');
+    }
+    var last = inputs[inputs.length-1];
+    if(last) {
+      last.focus();
+    }
+  }
+
+  function showAlert(opts) {
+    return showPopup( angular.extend({
+      buttons: [{
+        text: opts.okText || 'OK',
+        type: opts.okType || 'button-positive',
+        onTap: function(e) {
+          return true;
+        }
+      }]
+    }, opts || {}) );
+  }
+
+  function showConfirm(opts) {
+    return showPopup( angular.extend({
+      buttons: [{
+        text: opts.cancelText || 'Cancel' ,
+        type: opts.cancelType || 'button-default',
+        onTap: function(e) { return false; }
+      }, {
+        text: opts.okText || 'OK',
+        type: opts.okType || 'button-positive',
+        onTap: function(e) { return true; }
+      }]
+    }, opts || {}) );
+  }
+
+  function showPrompt(opts) {
+    var scope = $rootScope.$new(true);
+    scope.data = {};
+    return showPopup( angular.extend({
+      template: '<input ng-model="data.response" type="' + (opts.inputType || 'text') +
+        '" placeholder="' + (opts.inputPlaceholder || '') + '">',
+      scope: scope,
+      buttons: [{
+        text: opts.cancelText || 'Cancel',
+        type: opts.cancelType|| 'button-default',
+        onTap: function(e) {}
+      }, {
+        text: opts.okText || 'OK',
+        type: opts.okType || 'button-positive',
+        onTap: function(e) {
+          return scope.data.response || '';
+        }
+      }]
+    }, opts || {}) );
+  }
 }]);
 
-})(ionic);
 
-angular.module('ionic.service.templateLoad', [])
 
 /**
- * @private
+ * @ngdoc service
+ * @name $ionicScrollDelegate
+ * @module ionic
+ * @description
+ * Delegate for controlling scrollViews (created by
+ * {@link ionic.directive:ionContent} and
+ * {@link ionic.directive:ionScroll} directives).
+ *
+ * Methods called directly on the $ionicScrollDelegate service will control all scroll
+ * views.  Use the {@link ionic.service:$ionicScrollDelegate#$getByHandle $getByHandle}
+ * method to control specific scrollViews.
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-controller="MainCtrl">
+ *   <ion-content>
+ *     <button ng-click="scrollTop()">Scroll to Top!</button>
+ *   </ion-content>
+ * </body>
+ * ```
+ * ```js
+ * function MainCtrl($scope, $ionicScrollDelegate) {
+ *   $scope.scrollTop = function() {
+ *     $ionicScrollDelegate.scrollTop();
+ *   };
+ * }
+ * ```
+ *
+ * Example of advanced usage, with two scroll areas using `delegate-handle`
+ * for fine control.
+ *
+ * ```html
+ * <body ng-controller="MainCtrl">
+ *   <ion-content delegate-handle="mainScroll">
+ *     <button ng-click="scrollMainToTop()">
+ *       Scroll content to top!
+ *     </button>
+ *     <ion-scroll delegate-handle="small" style="height: 100px;">
+ *       <button ng-click="scrollSmallToTop()">
+ *         Scroll small area to top!
+ *       </button>
+ *     </ion-scroll>
+ *   </ion-content>
+ * </body>
+ * ```
+ * ```js
+ * function MainCtrl($scope, $ionicScrollDelegate) {
+ *   $scope.scrollMainToTop = function() {
+ *     $ionicScrollDelegate.$getByHandle('mainScroll').scrollTop();
+ *   };
+ *   $scope.scrollSmallToTop = function() {
+ *     $ionicScrollDelegate.$getByHandle('small').scrollTop();
+ *   };
+ * }
+ * ```
  */
-.factory('$ionicTemplateLoader', ['$q', '$http', '$templateCache', function($q, $http, $templateCache) {
+IonicModule
+.service('$ionicScrollDelegate', delegateService([
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#resize
+   * @description Tell the scrollView to recalculate the size of its container.
+   */
+  'resize',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#scrollTop
+   * @param {boolean=} shouldAnimate Whether the scroll should animate.
+   */
+  'scrollTop',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#scrollBottom
+   * @param {boolean=} shouldAnimate Whether the scroll should animate.
+   */
+  'scrollBottom',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#scrollTo
+   * @param {number} left The x-value to scroll to.
+   * @param {number} top The y-value to scroll to.
+   * @param {boolean=} shouldAnimate Whether the scroll should animate.
+   */
+  'scrollTo',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#scrollBy
+   * @param {number} left The x-offset to scroll by.
+   * @param {number} top The y-offset to scroll by.
+   * @param {boolean=} shouldAnimate Whether the scroll should animate.
+   */
+  'scrollBy',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#getScrollPosition
+   * @returns {object} The scroll position of this view, with the following properties:
+   *  - `{number}` `left` The distance the user has scrolled from the left (starts at 0).
+   *  - `{number}` `top` The distance the user has scrolled from the top (starts at 0).
+   */
+  'getScrollPosition',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#anchorScroll
+   * @description Tell the scrollView to scroll to the element with an id
+   * matching window.location.hash.
+   *
+   * If no matching element is found, it will scroll to top.
+   *
+   * @param {boolean=} shouldAnimate Whether the scroll should animate.
+   */
+  'anchorScroll',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#getScrollView
+   * @returns {object} The scrollView associated with this delegate.
+   */
+  'getScrollView',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#rememberScrollPosition
+   * @description
+   * Will make it so, when this scrollView is destroyed (user leaves the page),
+   * the last scroll position the page was on will be saved, indexed by the
+   * given id.
+   *
+   * Note: for pages associated with a view under an ion-nav-view,
+   * rememberScrollPosition automatically saves their scroll.
+   *
+   * Related methods: scrollToRememberedPosition, forgetScrollPosition (below).
+   *
+   * In the following example, the scroll position of the ion-scroll element
+   * will persist, even when the user changes the toggle switch.
+   *
+   * ```html
+   * <ion-toggle ng-model="shouldShowScrollView"></ion-toggle>
+   * <ion-scroll delegate-handle="myScroll" ng-if="shouldShowScrollView">
+   *   <div ng-controller="ScrollCtrl">
+   *     <ion-list>
+   *       {% raw %}<ion-item ng-repeat="i in items">{{i}}</ion-item>{% endraw %}
+   *     </ion-list>
+   *   </div>
+   * </ion-scroll>
+   * ```
+   * ```js
+   * function ScrollCtrl($scope, $ionicScrollDelegate) {
+   *   var delegate = $ionicScrollDelegate.$getByHandle('myScroll');
+   *
+   *   // Put any unique ID here.  The point of this is: every time the controller is recreated
+   *   // we want to load the correct remembered scroll values.
+   *   delegate.rememberScrollPosition('my-scroll-id');
+   *   delegate.scrollToRememberedPosition();
+   *   $scope.items = [];
+   *   for (var i=0; i<100; i++) {
+   *     $scope.items.push(i);
+   *   }
+   * }
+   * ```
+   *
+   * @param {string} id The id to remember the scroll position of this
+   * scrollView by.
+   */
+  'rememberScrollPosition',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#forgetScrollPosition
+   * @description
+   * Stop remembering the scroll position for this scrollView.
+   */
+  'forgetScrollPosition',
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#scrollToRememberedPosition
+   * @description
+   * If this scrollView has an id associated with its scroll position,
+   * (through calling rememberScrollPosition), and that position is remembered,
+   * load the position and scroll to it.
+   * @param {boolean=} shouldAnimate Whether to animate the scroll.
+   */
+  'scrollToRememberedPosition'
+  /**
+   * @ngdoc method
+   * @name $ionicScrollDelegate#$getByHandle
+   * @param {string} handle
+   * @returns `delegateInstance` A delegate instance that controls only the
+   * scrollViews with `delegate-handle` matching the given handle.
+   *
+   * Example: `$ionicScrollDelegate.$getByHandle('my-handle').scrollTop();`
+   */
+]));
+
+
+/**
+ * @ngdoc service
+ * @name $ionicSideMenuDelegate
+ * @module ionic
+ *
+ * @description
+ * Delegate for controlling the {@link ionic.directive:ionSideMenus} directive.
+ *
+ * Methods called directly on the $ionicSideMenuDelegate service will control all side
+ * menus.  Use the {@link ionic.service:$ionicSideMenuDelegate#$getByHandle $getByHandle}
+ * method to control specific ionSideMenus instances.
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-controller="MainCtrl">
+ *   <ion-side-menus>
+ *     <ion-side-menu-content>
+ *       Content!
+ *       <button ng-click="toggleLeftSideMenu()">
+ *         Toggle Left Side Menu
+ *       </button>
+ *     </ion-side-menu-content>
+ *     <ion-side-menu side="left">
+ *       Left Menu!
+ *     <ion-side-menu>
+ *   </ion-side-menus>
+ * </body>
+ * ```
+ * ```js
+ * function MainCtrl($scope, $ionicSideMenuDelegate) {
+ *   $scope.toggleLeftSideMenu = function() {
+ *     $ionicSideMenuDelegate.toggleLeft();
+ *   };
+ * }
+ * ```
+ */
+IonicModule
+.service('$ionicSideMenuDelegate', delegateService([
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#toggleLeft
+   * @description Toggle the left side menu (if it exists).
+   * @param {boolean=} isOpen Whether to open or close the menu.
+   * Default: Toggles the menu.
+   */
+  'toggleLeft',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#toggleRight
+   * @description Toggle the right side menu (if it exists).
+   * @param {boolean=} isOpen Whether to open or close the menu.
+   * Default: Toggles the menu.
+   */
+  'toggleRight',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#getOpenRatio
+   * @description Gets the ratio of open amount over menu width. For example, a
+   * menu of width 100 that is opened by 50 pixels is 50% opened, and would return
+   * a ratio of 0.5.
+   *
+   * @returns {float} 0 if nothing is open, between 0 and 1 if left menu is
+   * opened/opening, and between 0 and -1 if right menu is opened/opening.
+   */
+  'getOpenRatio',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#isOpen
+   * @returns {boolean} Whether either the left or right menu is currently opened.
+   */
+  'isOpen',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#isOpenLeft
+   * @returns {boolean} Whether the left menu is currently opened.
+   */
+  'isOpenLeft',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#isOpenRight
+   * @returns {boolean} Whether the right menu is currently opened.
+   */
+  'isOpenRight',
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#canDragContent
+   * @param {boolean=} canDrag Set whether the content can or cannot be dragged to open
+   * side menus.
+   * @returns {boolean} Whether the content can be dragged to open side menus.
+   */
+  'canDragContent'
+  /**
+   * @ngdoc method
+   * @name $ionicSideMenuDelegate#$getByHandle
+   * @param {string} handle
+   * @returns `delegateInstance` A delegate instance that controls only the
+   * {@link ionic.directive:ionSideMenus} directives with `delegate-handle` matching
+   * the given handle.
+   *
+   * Example: `$ionicSideMenuDelegate.$getByHandle('my-handle').toggleLeft();`
+   */
+]));
+
+
+/**
+ * @ngdoc service
+ * @name $ionicSlideBoxDelegate
+ * @module ionic
+ * @description
+ * Delegate that controls the {@link ionic.directive:ionSlideBox} directive.
+ *
+ * Methods called directly on the $ionicSlideBoxDelegate service will control all side
+ * menus.  Use the {@link ionic.service:$ionicSlideBoxDelegate#$getByHandle $getByHandle}
+ * method to control specific slide box instances.
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-controller="MyCtrl">
+ *   <ion-slide-box>
+ *     <ion-slide>
+ *       <div class="box blue">
+ *         <button ng-click="nextSlide()">Next slide!</button>
+ *       </div>
+ *     </ion-slide>
+ *     <ion-slide>
+ *       <div class="box red">
+ *         Slide 2!
+ *       </div>
+ *     </ion-slide>
+ *   </ion-slide-box>
+ * </body>
+ * ```
+ * ```js
+ * function MyCtrl($scope, $ionicSlideBoxDelegate) {
+ *   $scope.nextSlide = function() {
+ *     $ionicSlideBoxDelegate.next();
+ *   }
+ * }
+ * ```
+ */
+IonicModule
+.service('$ionicSlideBoxDelegate', delegateService([
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#update
+   * @description
+   * Update the slidebox (for example if using Angular with ng-repeat,
+   * resize it for the elements inside).
+   */
+  'update',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#slide
+   * @param {number} to The index to slide to.
+   * @param {number=} speed The number of milliseconds for the change to take.
+   */
+  'slide',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#enableSlide
+   * @param {boolean=} shouldEnable Whether to enable sliding the slidebox.
+   * @returns {boolean} Whether sliding is enabled.
+   */
+  'enableSlide',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#previous
+   * @description Go to the previous slide. Wraps around if at the beginning.
+   */
+  'previous',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#next
+   * @description Go to the next slide. Wraps around if at the end.
+   */
+  'next',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#stop
+   * @description Stop sliding. The slideBox will not move again until
+   * explicitly told to do so.
+   */
+  'stop',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#currentIndex
+   * @returns number The index of the current slide.
+   */
+  'currentIndex',
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#slidesCount
+   * @returns number The number of slides there are currently.
+   */
+  'slidesCount'
+  /**
+   * @ngdoc method
+   * @name $ionicSlideBoxDelegate#$getByHandle
+   * @param {string} handle
+   * @returns `delegateInstance` A delegate instance that controls only the
+   * {@link ionic.directive:ionSlideBox} directives with `delegate-handle` matching
+   * the given handle.
+   *
+   * Example: `$ionicSlideBoxDelegate.$getByHandle('my-handle').stop();`
+   */
+]));
+
+
+/**
+ * @ngdoc service
+ * @name $ionicTabsDelegate
+ * @module ionic
+ *
+ * @description
+ * Delegate for controlling the {@link ionic.directive:ionTabs} directive.
+ *
+ * Methods called directly on the $ionicTabsDelegate service will control all ionTabs
+ * directives. Use the {@link ionic.service:$ionicTabsDelegate#$getByHandle $getByHandle}
+ * method to control specific ionTabs instances.
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-controller="MyCtrl">
+ *   <ion-tabs>
+ *
+ *     <ion-tab title="Tab 1">
+ *       Hello tab 1!
+ *       <button ng-click="selectTabWithIndex(1)">Select tab 2!</button>
+ *     </ion-tab>
+ *     <ion-tab title="Tab 2">Hello tab 2!</ion-tab>
+ *
+ *   </ion-tabs>
+ * </body>
+ * ```
+ * ```js
+ * function MyCtrl($scope, $ionicTabsDelegate) {
+ *   $scope.selectTabWithIndex = function(index) {
+ *     $ionicTabsDelegate.select(index);
+ *   }
+ * }
+ * ```
+ */
+IonicModule
+.service('$ionicTabsDelegate', delegateService([
+  /**
+   * @ngdoc method
+   * @name $ionicTabsDelegate#select
+   * @description Select the tab matching the given index.
+   *
+   * @param {number} index Index of the tab to select.
+   * @param {boolean=} shouldChangeHistory Whether this selection should load this tab's
+   * view history (if it exists) and use it, or just load the default page.
+   * Default false.
+   * Hint: you probably want this to be true if you have an
+   * {@link ionic.directive:ionNavView} inside your tab.
+   */
+  'select',
+  /**
+   * @ngdoc method
+   * @name $ionicTabsDelegate#selectedIndex
+   * @returns `number` The index of the selected tab, or -1.
+   */
+  'selectedIndex'
+  /**
+   * @ngdoc method
+   * @name $ionicTabsDelegate#$getByHandle
+   * @param {string} handle
+   * @returns `delegateInstance` A delegate instance that controls only the
+   * {@link ionic.directive:ionTabs} directives with `delegate-handle` matching
+   * the given handle.
+   *
+   * Example: `$ionicTabsDelegate.$getByHandle('my-handle').select(0);`
+   */
+]))
+
+
+IonicModule
+.factory('$ionicTemplateLoader', [
+  '$compile',
+  '$controller',
+  '$http',
+  '$q',
+  '$rootScope',
+  '$templateCache',
+function($compile, $controller, $http, $q, $rootScope, $templateCache) {
+
   return {
-    load: function(url) {
-      return $http.get(url, {cache: $templateCache})
-      .then(function(response) {
-        return response.data && response.data.trim();
-      });
-    }
+    load: fetchTemplate,
+    compile: loadAndCompile
   };
+
+  function fetchTemplate(url) {
+    return $http.get(url, {cache: $templateCache})
+    .then(function(response) {
+      return response.data && response.data.trim();
+    });
+  }
+
+  function loadAndCompile(options) {
+    options = angular.extend({
+      template: '',
+      templateUrl: '',
+      scope: null,
+      controller: null,
+      locals: {},
+      appendTo: null
+    }, options || {});
+
+    var templatePromise = options.templateUrl ?
+      this.load(options.templateUrl) :
+      $q.when(options.template);
+
+    return templatePromise.then(function(template) {
+      var controller;
+      var scope = options.scope || $rootScope.$new();
+
+      //Incase template doesn't have just one root element, do this
+      var element = angular.element('<div>').html(template).contents();
+
+      if (options.controller) {
+        controller = $controller(
+          options.controller,
+          angular.extend(options.locals, {
+            $scope: scope
+          })
+        );
+        element.children().data('$ngControllerController', controller);
+      }
+      if (options.appendTo) {
+        angular.element(options.appendTo).append(element);
+      }
+
+      $compile(element)(scope);
+
+      return {
+        element: element,
+        scope: scope
+      };
+    });
+  }
+
 }]);
-
-angular.module('ionic.service.view', ['ui.router', 'ionic.service.platform'])
-
 
 /**
  * @private
  * TODO document
  */
-.run(['$rootScope', '$state', '$location', '$document', '$animate', '$ionicPlatform',
-  function( $rootScope,   $state,   $location,   $document,   $animate,   $ionicPlatform) {
+IonicModule
+.run([
+  '$rootScope',
+  '$state',
+  '$location',
+  '$document',
+  '$animate',
+  '$ionicPlatform',
+  '$ionicViewService',
+function($rootScope, $state, $location, $document, $animate, $ionicPlatform, $ionicViewService) {
 
   // init the variables that keep track of the view history
   $rootScope.$viewHistory = {
@@ -33659,6 +40168,13 @@ angular.module('ionic.service.view', ['ui.router', 'ionic.service.platform'])
     currentView: null,
     disabledRegistrableTagNames: []
   };
+
+  // set that these directives should not animate when transitioning
+  // to it. Instead, the children <tab> directives would animate
+  if ($ionicViewService.disableRegisterByTagName) {
+    $ionicViewService.disableRegisterByTagName('ion-tabs');
+    $ionicViewService.disableRegisterByTagName('ion-side-menus');
+  }
 
   $rootScope.$on('viewState.changeHistory', function(e, data) {
     if(!data) return;
@@ -33709,13 +40225,21 @@ angular.module('ionic.service.view', ['ui.router', 'ionic.service.platform'])
     e.preventDefault();
     return false;
   }
-  $ionicPlatform.registerBackButtonAction(onHardwareBackButton, 100);
+  $ionicPlatform.registerBackButtonAction(
+    onHardwareBackButton, 
+    PLATFORM_BACK_BUTTON_PRIORITY_VIEW
+  );
 
 }])
 
-.factory('$ionicViewService', ['$rootScope', '$state', '$location', '$window', '$injector',
-                      function( $rootScope,   $state,   $location,   $window,   $injector) {
-  var $animate = $injector.has('$animate') ? $injector.get('$animate') : false;
+.factory('$ionicViewService', [
+  '$rootScope',
+  '$state',
+  '$location',
+  '$window',
+  '$injector',
+  '$animate',
+function($rootScope, $state, $location, $window, $injector, $animate) {
 
   var View = function(){};
   View.prototype.initialize = function(data) {
@@ -34054,11 +40578,7 @@ angular.module('ionic.service.view', ['ui.router', 'ionic.service.platform'])
       var doAnimation;
 
       // climb up the DOM and see which animation classname to use, if any
-      var animationClass = angular.isDefined(navViewScope.$nextAnimation) ?
-        navViewScope.$nextAnimation :
-        getParentAnimationClass(navViewElement[0]);
-
-      navViewScope.$nextAnimation = undefined;
+      var animationClass = getParentAnimationClass(navViewElement[0]);
 
       function getParentAnimationClass(el) {
         var className = '';
@@ -34197,12 +40717,12 @@ angular.module('ionic.service.view', ['ui.router', 'ionic.service.platform'])
 
 }]);
 
-angular.module('ionic.decorator.location', [])
-
 /**
  * @private
  */
-.config(['$provide', function($provide) {
+IonicModule.config([
+  '$provide',
+function($provide) {
   function $LocationDecorator($location, $timeout) {
 
     $location.__hash = $location.hash;
@@ -34222,1015 +40742,127 @@ angular.module('ionic.decorator.location', [])
 
     return $location;
   }
-  
+
   $provide.decorator('$location', ['$delegate', '$timeout', $LocationDecorator]);
 }]);
 
-(function() {
-'use strict';
-
-angular.module('ionic.ui.actionSheet', [])
-
-/*
- * We don't document the ionActionSheet directive, we instead document
- * the $ionicActionSheet service
- */
-.directive('ionActionSheet', ['$document', function($document) {
-  return {
-    restrict: 'E',
-    scope: true,
-    replace: true,
-    link: function($scope, $element){
-      var keyUp = function(e) {
-        if(e.which == 27) {
-          $scope.cancel();
-          $scope.$apply();
-        }
-      };
-
-      var backdropClick = function(e) {
-        if(e.target == $element[0]) {
-          $scope.cancel();
-          $scope.$apply();
-        }
-      };
-      $scope.$on('$destroy', function() {
-        $element.remove();
-        $document.unbind('keyup', keyUp);
-      });
-
-      $document.bind('keyup', keyUp);
-      $element.bind('click', backdropClick);
-    },
-    template: '<div class="action-sheet-backdrop">' +
-                '<div class="action-sheet-wrapper">' +
-                  '<div class="action-sheet">' +
-                    '<div class="action-sheet-group">' +
-                      '<div class="action-sheet-title" ng-if="titleText">{{titleText}}</div>' +
-                      '<button class="button" ng-click="buttonClicked($index)" ng-repeat="button in buttons">{{button.text}}</button>' +
-                    '</div>' +
-                    '<div class="action-sheet-group" ng-if="destructiveText">' +
-                      '<button class="button destructive" ng-click="destructiveButtonClicked()">{{destructiveText}}</button>' +
-                    '</div>' +
-                    '<div class="action-sheet-group" ng-if="cancelText">' +
-                      '<button class="button" ng-click="cancel()">{{cancelText}}</button>' +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-              '</div>'
-  };
-}]);
-
-})();
-
-(function(ionic) {
-'use strict';
-
-angular.module('ionic.ui.header', ['ngAnimate', 'ngSanitize'])
-
-.directive('ionNavBar', tapScrollToTopDirective())
-.directive('ionHeaderBar', tapScrollToTopDirective())
 
 /**
- * @ngdoc directive
- * @name ionHeaderBar
+ * @ngdoc service
+ * @name $ionicListDelegate
  * @module ionic
- * @restrict E
  *
  * @description
- * Adds a fixed header bar above some content.
+ * Delegate for controlling the {@link ionic.directive:ionList} directive.
  *
- * @param {string=} align-title Where to align the title.
- * Avaialble: 'left', 'right', or 'center'.  Defaults to 'center'.
- *
- * @usage
- * ```html
- * <ion-header-bar align-title="left" class="bar-positive">
- *   <div class="buttons">
- *     <button class="button" ng-click="doSomething()">Left Button</button>
- *   </div>
- *   <h1 class="title">Title!</h1>
- *   <div class="buttons">
- *     <button class="button">Right Button</button>
- *   </div>
- * </ion-header-bar>
- * <ion-content>
- *   Some content!
- * </ion-content>
- * ```
- */
-.directive('ionHeaderBar', barDirective(true))
-
-/**
- * @ngdoc directive
- * @name ionFooterBar
- * @module ionic
- * @restrict E
- *
- * @description
- * Adds a fixed footer bar below some content.
- *
- * @param {string=} align-title Where to align the title.
- * Avaialble: 'left', 'right', or 'center'.  Defaults to 'center'.
- *
- * @usage
- * ```html
- * <ion-content>
- *   Some content!
- * </ion-content>
- * <ion-footer-bar align-title="left" class="bar-assertive">
- *   <div class="buttons">
- *     <button class="button">Left Button</button>
- *   </div>
- *   <h1 class="title">Title!</h1>
- *   <div class="buttons" ng-click="doSomething()">
- *     <button class="button">Right Button</button>
- *   </div>
- * </ion-footer-bar>
- * ```
- */
-.directive('ionFooterBar', barDirective(false));
-
-function tapScrollToTopDirective() {
-  return ['$ionicScrollDelegate', function($ionicScrollDelegate) {
-    return {
-      restrict: 'E',
-      link: function($scope, $element, $attr) {
-        ionic.on('tap', onTap, $element[0]);
-        $scope.$on('$destroy', function() {
-          ionic.off('tap', onTap, $element[0]);
-        });
-
-        function onTap(e) {
-          if (ionic.DomUtil.getParentOrSelfWithClass(e.target, 'button', 4)) {
-            return;
-          }
-          var touch = e.gesture && e.gesture.touches[0] || e.detail.touches[0];
-          var bounds = $element[0].getBoundingClientRect();
-          if (ionic.DomUtil.rectContains(
-            touch.pageX, touch.pageY,
-            bounds.left, bounds.top - 20,
-            bounds.left + bounds.width, bounds.top + bounds.height
-          )) {
-            $ionicScrollDelegate.scrollTop(true);
-          }
-        }
-      }
-    };
-  }];
-}
-
-
-function barDirective(isHeader) {
-  return [function() {
-    return {
-      restrict: 'E',
-      compile: function($element, $attr) {
-        $element.addClass(isHeader ? 'bar bar-header' : 'bar bar-footer');
-
-        return { pre: prelink };
-        function prelink($scope, $element, $attr) {
-          var hb = new ionic.views.HeaderBar({
-            el: $element[0],
-            alignTitle: $attr.alignTitle || 'center'
-          });
-
-          var el = $element[0];
-          //just incase header is on rootscope
-          var parentScope = $scope.$parent || $scope;
-
-          if (isHeader) {
-            $scope.$watch(function() { return el.className; }, function(value) {
-              var isSubheader = value.indexOf('bar-subheader') !== -1;
-              parentScope.$hasHeader = !isSubheader;
-              parentScope.$hasSubheader = isSubheader;
-            });
-            $scope.$on('$destroy', function() {
-              parentScope.$hasHeader = parentScope.$hasSubheader = null;
-            });
-          } else {
-            $scope.$watch(function() { return el.className; }, function(value) {
-              var isSubfooter = value.indexOf('bar-subfooter') !== -1;
-              parentScope.$hasFooter = !isSubfooter;
-              parentScope.$hasSubfooter = isSubfooter;
-            });
-            $scope.$on('$destroy', function() {
-              parentScope.$hasFooter = parentScope.$hasSubfooter = null;
-            });
-            $scope.$watch('$hasTabs', function(val) {
-              $element.toggleClass('has-tabs', !!val);
-            });
-          }
-        }
-      }
-    };
-  }];
-}
-
-})(ionic);
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.checkbox', [])
-
-/**
- * @ngdoc directive
- * @name ionCheckbox
- * @module ionic
- * @restrict E
- * @description
- * No different than the HTML checkbox input, except it's styled differently.
- *
- * Behaves like any [AngularJS checkbox](http://docs.angularjs.org/api/ng/input/input[checkbox]).
- *
- * @usage
- * ```html
- * <ion-checkbox ng-model="isChecked">Checkbox Label</ion-checkbox>
- * ```
- */
-.directive('ionCheckbox', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: '?ngModel',
-    scope: {
-      ngModel: '=?',
-      ngValue: '=?',
-      ngChecked: '=?',
-      ngChange: '&'
-    },
-    transclude: true,
-
-    template: '<div class="item item-checkbox disable-pointer-events">' +
-                '<label class="checkbox enable-pointer-events">' +
-                  '<input type="checkbox" ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()">' +
-                '</label>' +
-                '<div class="item-content" ng-transclude></div>' +
-              '</div>',
-
-    compile: function(element, attr) {
-      var input = element.find('input');
-      if(attr.name) input.attr('name', attr.name);
-      if(attr.ngChecked) input.attr('ng-checked', 'ngChecked');
-      if(attr.ngTrueValue) input.attr('ng-true-value', attr.ngTrueValue);
-      if(attr.ngFalseValue) input.attr('ng-false-value', attr.ngFalseValue);
-    }
-
-  };
-});
-
-})();
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.content', ['ionic.ui.scroll'])
-
-/**
- * Panel is a simple 100% width and height, fixed panel. It's meant for content to be
- * added to it, or animated around.
- */
-/**
- * @ngdoc directive
- * @name ionPane
- * @module ionic
- * @restrict E
- *
- * @description A simple container that fits content, with no side effects.  Adds the 'pane' class to the element.
- */
-.directive('ionPane', function() {
-  return {
-    restrict: 'E',
-    link: function(scope, element, attr) {
-      element.addClass('pane');
-    }
-  };
-})
-
-/**
- * @ngdoc directive
- * @name ionContent
- * @module ionic
- * @delegate ionic.service:$ionicScrollDelegate
- * @restrict E
- *
- * @description
- * The ionContent directive provides an easy to use content area that can be configured
- * to use Ionic's custom Scroll View, or the built in overflow scrolling of the browser.
- *
- * While we recommend using the custom Scroll features in Ionic in most cases, sometimes
- * (for performance reasons) only the browser's native overflow scrolling will suffice,
- * and so we've made it easy to toggle between the Ionic scroll implementation and
- * overflow scrolling.
- *
- * You can implement pull-to-refresh with the {@link ionic.directive:ionRefresher}
- * directive, and infinite scrolling with the {@link ionic.directive:ionInfiniteScroll}
- * directive.
- *
- * @param {string=} delegate-handle The handle used to identify this scrollView
- * with {@link ionic.service:$ionicScrollDelegate}.
- * @param {boolean=} padding Whether to add padding to the content.
- * of the content.  Defaults to true on iOS, false on Android.
- * @param {boolean=} scroll Whether to allow scrolling of content.  Defaults to true.
- * @param {boolean=} overflow-scroll Whether to use overflow-scrolling instead of
- * Ionic scroll.
- * @param {boolean=} has-bouncing Whether to allow scrolling to bounce past the edges
- * of the content.  Defaults to true on iOS, false on Android.
- * @param {expression=} on-scroll Expression to evaluate when the content is scrolled.
- * @param {expression=} on-scroll-complete Expression to evaluate when a scroll action completes.
- */
-.directive('ionContent', [
-  '$timeout',
-  '$controller',
-  '$ionicBind',
-function($timeout, $controller, $ionicBind) {
-  return {
-    restrict: 'E',
-    require: '^?ionNavView',
-    scope: true,
-    compile: function(element, attr) {
-      element.addClass('scroll-content');
-
-      //We cannot transclude here because it breaks element.data() inheritance on compile
-      var innerElement = angular.element('<div class="scroll"></div>');
-      innerElement.append(element.contents());
-      element.append(innerElement);
-
-      return { pre: prelink };
-      function prelink($scope, $element, $attr, navViewCtrl) {
-        $scope.$watch(function() {
-          return ($scope.$hasHeader ? ' has-header' : '')  +
-            ($scope.$hasSubheader ? ' has-subheader' : '') +
-            ($scope.$hasFooter ? ' has-footer' : '') +
-            ($scope.$hasSubfooter ? ' has-subfooter' : '') +
-            ($scope.$hasTabs ? ' has-tabs' : '') +
-            ($scope.$hasTabsTop ? ' has-tabs-top' : '');
-        }, function(className, oldClassName) {
-          $element.removeClass(oldClassName);
-          $element.addClass(className);
-        });
-
-        $ionicBind($scope, $attr, {
-          $onScroll: '&onScroll',
-          $onScrollComplete: '&onScrollComplete',
-          hasBouncing: '@',
-          scroll: '@',
-          padding: '@',
-          hasScrollX: '@',
-          hasScrollY: '@',
-          scrollbarX: '@',
-          scrollbarY: '@',
-          startX: '@',
-          startY: '@',
-          scrollEventInterval: '@'
-        });
-
-        if (angular.isDefined($attr.padding)) {
-          $scope.$watch($attr.padding, function(newVal) {
-            innerElement.toggleClass('padding', !!newVal);
-          });
-        }
-
-        if ($scope.scroll === "false") {
-          //do nothing
-        } else if(attr.overflowScroll === "true") {
-          $element.addClass('overflow-scroll');
-        } else {
-          $controller('$ionicScroll', {
-            $scope: $scope,
-            scrollViewOptions: {
-              el: $element[0],
-              delegateHandle: attr.delegateHandle,
-              bouncing: $scope.$eval($scope.hasBouncing),
-              startX: $scope.$eval($scope.startX) || 0,
-              startY: $scope.$eval($scope.startY) || 0,
-              scrollbarX: $scope.$eval($scope.scrollbarX) !== false,
-              scrollbarY: $scope.$eval($scope.scrollbarY) !== false,
-              scrollingX: $scope.$eval($scope.hasScrollX) === true,
-              scrollingY: $scope.$eval($scope.hasScrollY) !== false,
-              scrollEventInterval: parseInt($scope.scrollEventInterval, 10) || 20,
-              scrollingComplete: function() {
-                $scope.$onScrollComplete({
-                  scrollTop: this.__scrollTop,
-                  scrollLeft: this.__scrollLeft
-                });
-              }
-            }
-          });
-        }
-
-      }
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionRefresher
- * @module ionic
- * @restrict E
- * @parent ionic.directive:ionContent, ionic.directive:ionScroll
- * @description
- * Allows you to add pull-to-refresh to a scrollView.
- *
- * Place it as the first child of your {@link ionic.directive:ionContent} or
- * {@link ionic.directive:ionScroll} element.
- *
- * When refreshing is complete, $broadcast the 'scroll.refreshComplete' event
- * from your controller.
+ * Methods called directly on the $ionicListDelegate service will control all lists.
+ * Use the {@link ionic.service:$ionicListDelegate#$getByHandle $getByHandle}
+ * method to control specific ionList instances.
  *
  * @usage
  *
- * ```html
- * <ion-content ng-controller="MyController">
- *   <ion-refresher
- *     pulling-text="Pull to refresh..."
- *     on-refresh="doRefresh()">
- *   </ion-refresher>
+ * ````html
+ * <ion-content ng-controller="MyCtrl">
+ *   <button class="button" ng-click="showDeleteButtons()"></button>
  *   <ion-list>
- *     <ion-item ng-repeat="item in items"></ion-item>
+ *     <ion-item ng-repeat="i in items">>
+ *       {% raw %}Hello, {{i}}!{% endraw %}
+ *       <ion-delete-button class="ion-minus-circled"></ion-delete-button>
+ *     </ion-item>
  *   </ion-list>
  * </ion-content>
  * ```
  * ```js
- * angular.module('testApp', ['ionic'])
- * .controller('MyController', function($scope, $http) {
- *   $scope.items = [1,2,3];
- *   $scope.doRefresh = function() {
- *     $http.get('/new-items').success(function(newItems) {
- *       $scope.items = newItems;
- *       //Stop the ion-refresher from spinning
- *       $scope.$broadcast('scroll.refreshComplete');
- *     });
- *   };
- * });
- * ```
- *
- * @param {expression=} on-refresh Called when the user pulls down enough and lets go
- * of the refresher.
- * @param {expression=} on-pulling Called when the user starts to pull down
- * on the refresher.
- * @param {string=} pulling-icon The icon to display while the user is pulling down.
- * Default: 'ion-arrow-down-c'.
- * @param {string=} pulling-text The text to display while the user is pulling down.
- * @param {string=} refreshing-icon The icon to display after user lets go of the
- * refresher.
- * @param {string=} refreshing-text The text to display after the user lets go of
- * the refresher.
- *
- */
-.directive('ionRefresher', ['$ionicBind', function($ionicBind) {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: '^$ionicScroll',
-    template:
-    '<div class="scroll-refresher">' +
-    '<div class="ionic-refresher-content">' +
-        '<i class="icon {{pullingIcon}} icon-pulling"></i>' +
-        '<span class="icon-pulling" ng-bind-html="pullingText"></span>' +
-        '<i class="icon {{refreshingIcon}} icon-refreshing"></i>' +
-        '<span class="icon-refreshing" ng-bind-html="refreshingText"></span>' +
-      '</div>' +
-    '</div>',
-    compile: function($element, $attrs) {
-      if (angular.isUndefined($attrs.pullingIcon)) {
-        $attrs.$set('pullingIcon', 'ion-arrow-down-c');
-      }
-      if (angular.isUndefined($attrs.refreshingIcon)) {
-        $attrs.$set('refreshingIcon', 'ion-loading-d');
-      }
-      return function($scope, $element, $attrs, scrollCtrl) {
-        $ionicBind($scope, $attrs, {
-          pullingIcon: '@',
-          pullingText: '@',
-          refreshingIcon: '@',
-          refreshingText: '@',
-          $onRefresh: '&onRefresh',
-          $onPulling: '&onPulling'
-        });
-
-        scrollCtrl._setRefresher($scope, $element[0]);
-        $scope.$on('scroll.refreshComplete', function() {
-          $element[0].classList.remove('active');
-          scrollCtrl.scrollView.finishPullToRefresh();
-        });
-      };
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionInfiniteScroll
- * @module ionic
- * @parent ionic.directive:ionContent, ionic.directive:ionScroll
- * @restrict E
- *
- * @description
- * The ionInfiniteScroll directive allows you to call a function whenever
- * the user gets to the bottom of the page or near the bottom of the page.
- *
- * The expression you pass in for `on-infinite` is called when the user scrolls
- * greater than `distance` away from the bottom of the content.
- *
- * @param {expression} on-infinite What to call when the scroller reaches the
- * bottom.
- * @param {string=} distance The distance from the bottom that the scroll must
- * reach to trigger the on-infinite expression. Default: 1%.
- * @param {string=} icon The icon to show while loading. Default: 'ion-loading-d'.
- *
- * @usage
- * ```html
- * <ion-content ng-controller="MyController">
- *   <ion-infinite-scroll
- *     on-infinite="loadMore()"
- *     distance="1%">
- *   </ion-infinite-scroll>
- * </ion-content>
- * ```
- * ```js
- * function MyController($scope, $http) {
- *   $scope.items = [];
- *   $scope.loadMore = function() {
- *     $http.get('/more-items').success(function(items) {
- *       useItems(items);
- *       $scope.$broadcast('scroll.infiniteScrollComplete');
- *     });
+ * function MyCtrl($scope, $ionicListDelegate) {
+ *   $scope.showDeleteButtons = function() {
+ *     $ionicListDelegate.showDelete(true);
  *   };
  * }
  * ```
- *
- * An easy to way to stop infinite scroll once there is no more data to load
- * is to use angular's `ng-if` directive:
- *
- * ```html
- * <ion-infinite-scroll
- *   ng-if="moreDataCanBeLoaded()"
- *   icon="ion-loading-c"
- *   on-infinite="loadMoreData()">
- * </ion-infinite-scroll>
- * ```
  */
-.directive('ionInfiniteScroll', ['$timeout', function($timeout) {
-  return {
-    restrict: 'E',
-    require: ['^$ionicScroll', 'ionInfiniteScroll'],
-    template:
-      '<div class="scroll-infinite">' +
-        '<div class="scroll-infinite-content">' +
-          '<i class="icon {{icon()}} icon-refreshing"></i>' +
-        '</div>' +
-      '</div>',
-    scope: true,
-    controller: ['$scope', '$attrs', function($scope, $attrs) {
-      this.isLoading = false;
-      this.scrollView = null; //given by link function
-      this.getMaxScroll = function() {
-        var dist = $attrs.distance || '1%';
-        return dist.indexOf('%') > -1 ?
-          this.scrollView.getScrollMax().top * (1 - parseInt(dist,10) / 100) :
-          this.scrollView.getScrollMax().top - parseInt(dist, 10);
-      };
-    }],
-    link: function($scope, $element, $attrs, ctrls) {
-      var scrollCtrl = ctrls[0];
-      var infiniteScrollCtrl = ctrls[1];
-      var scrollView = infiniteScrollCtrl.scrollView = scrollCtrl.scrollView;
-
-      $scope.icon = function() {
-        return angular.isDefined($attrs.icon) ? $attrs.icon : 'ion-loading-d';
-      };
-
-      $scope.$on('scroll.infiniteScrollComplete', function() {
-        $element[0].classList.remove('active');
-        $timeout(function() {
-          scrollView.resize();
-        }, 0, false);
-        infiniteScrollCtrl.isLoading = false;
-      });
-
-      scrollCtrl.$element.on('scroll', ionic.animationFrameThrottle(function() {
-        if (!infiniteScrollCtrl.isLoading &&
-            scrollView.getValues().top >= infiniteScrollCtrl.getMaxScroll()) {
-          $element[0].classList.add('active');
-          infiniteScrollCtrl.isLoading = true;
-          $scope.$parent.$apply($attrs.onInfinite || '');
-        }
-      }));
-    }
-  };
-}]);
-
-})();
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.list', ['ngAnimate'])
-
-/**
- * @ngdoc directive
- * @name ionItem
- * @module ionic
- * @restrict E
- * @parent ionic.directive:ionList
- *
- * @description
- * The ionItem directive creates a list-item that can easily be swiped,
- * deleted, reordered, edited, and more.
- *
- * @usage
- * ```html
- * <ion-list>
- *   <ion-item ng-repeat="item in items"
- *     item="item"
- *     can-swipe="true"
- *     left-buttons="myItemButtons">
- *   </ion-item>
- * </ion-list>
- * ```
- *
- * @param {string=} item-type The type of this item.  See [the list CSS page](/docs/components/#list) for available item types.
- * @param {expression=} option-buttons The option buttons to show when swiping the item to the left (if swiping is enabled).  Defaults to the ionList parent's option-buttons setting.  The format of each button object is:
- *   ```js
- *   {
- *     text: 'Edit',
- *     type: 'Button',
- *     onTap: function(item) {}
- *   }
- *   ```
- *
- * @param {expression=} item The 'object' representing this item, to be passed in to swipe, delete, and reorder callbacks.
- * @param {boolean=} can-swipe Whether or not this item can be swiped. Defaults ot hte ionList parent's can-swipe setting.
- * @param {boolean=} can-delete Whether or not this item can be deleted. Defaults to the ionList parent's can-delete setting.
- * @param {boolean=} can-reorder Whether or not this item can be reordered. Defaults to the ionList parent's can-reorder setting.
- * @param {expression=} on-delete The expression to call when this item is deleted.
- * @param {string=} delete-icon The class name of the icon to show on this item while deleting. Defaults to the ionList parent's delete-icon setting.
- * @param {string=} reorder-icon The class name of the icon to show on this item while reordering. Defaults to the ionList parent's reorder-icon setting.
- */
-.directive('ionItem', ['$timeout', '$parse', function($timeout, $parse) {
-  return {
-    restrict: 'E',
-    require: '?^ionList',
-    replace: true,
-    transclude: true,
-
-    scope: {
-      item: '=',
-      itemType: '@',
-      canDelete: '@',
-      canReorder: '@',
-      canSwipe: '@',
-      onDelete: '&',
-      optionButtons: '&',
-      deleteIcon: '@',
-      reorderIcon: '@'
-    },
-
-    template: '<div class="item item-complex">\
-            <div class="item-left-edit item-delete" ng-if="deleteClick !== undefined">\
-              <button class="button button-icon icon" ng-class="deleteIconClass" ng-click="deleteClick()" ion-stop-event="click"></button>\
-            </div>\
-            <a class="item-content" ng-href="{{ href }}" ng-transclude></a>\
-            <div class="item-right-edit item-reorder" ng-if="reorderIconClass !== undefined">\
-              <button data-ionic-action="reorder" data-prevent-scroll="true" class="button button-icon icon" ng-class="reorderIconClass"></button>\
-            </div>\
-            <div class="item-options" ng-if="itemOptionButtons">\
-             <button ng-click="b.onTap(item, b)" ion-stop-event="click" class="button" ng-class="b.type" ng-repeat="b in itemOptionButtons" ng-bind="b.text"></button>\
-           </div>\
-          </div>',
-
-    link: function($scope, $element, $attr, list) {
-      if(!list) return;
-
-      var $parentScope = list.scope;
-      var $parentAttrs = list.attrs;
-
-      $attr.$observe('href', function(value) {
-        if(value) $scope.href = value.trim();
-      });
-
-      if(!$scope.itemType) {
-        $scope.itemType = $parentScope.itemType;
-      }
-
-      // Set this item's class, first from the item directive attr, and then the list attr if item not set
-      $element.addClass($scope.itemType || $parentScope.itemType);
-
-      $scope.itemClass = $scope.itemType;
-
-      // Decide if this item can do stuff, and follow a certain priority
-      // depending on where the value comes from
-      if(($attr.canDelete ? $scope.canDelete : $parentScope.canDelete) !== "false") {
-        if($attr.onDelete || $parentAttrs.onDelete) {
-
-          // only assign this method when we need to
-          // and use its existence to decide if the delete should show or not
-          $scope.deleteClick = function() {
-            if($attr.onDelete) {
-              // this item has an on-delete attribute
-              $scope.onDelete({ item: $scope.item, index: $scope.$parent.$index });
-            } else if($parentAttrs.onDelete) {
-              // run the parent list's onDelete method
-              // if it doesn't exist nothing will happen
-              $parentScope.onDelete({ item: $scope.item, index: $scope.$parent.$index });
-            }
-          };
-
-          // Set which icons to use for deleting
-          $scope.deleteIconClass = $scope.deleteIcon || $parentScope.deleteIcon || 'ion-minus-circled';
-          $element.addClass('item-left-editable');
-        }
-      }
-
-      // set the reorder Icon Class only if the item or list set can-reorder="true"
-      if(($attr.canReorder ? $scope.canReorder : $parentScope.canReorder) === "true") {
-        $scope.reorderIconClass = $scope.reorderIcon || $parentScope.reorderIcon || 'ion-navicon';
-        $element.addClass('item-right-editable');
-      }
-
-      // Set the option buttons which can be revealed by swiping to the left
-      // if canSwipe was set to false don't even bother
-      if(($attr.canSwipe ? $scope.canSwipe : $parentScope.canSwipe) !== "false") {
-        $scope.itemOptionButtons = $scope.optionButtons();
-        if(typeof $scope.itemOptionButtons === "undefined") {
-          $scope.itemOptionButtons = $parentScope.optionButtons();
-        }
-        $element.addClass('item-swipeable');
-      }
-
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionList
- * @module ionic
- * @restrict E
- * @codepen jsHjf
- *
- * @description
- * The List is a widely used interface element in almost any mobile app,
- * and can include content ranging from basic text all the way to buttons,
- * toggles, icons, and thumbnails.
- *
- * Both the list, which contains items, and the list items themselves can be
- * any HTML element. The containing element requires the list class and each
- * list item requires the item class. Ionic also comes with pre-built Angular
- * directives to make it easier to create a complex list.
- *
- * Using the ionList and {@link ionic.directive:ionItem} directives
- * make it easy to support various interaction modes such as swipe to edit,
- * drag to reorder, and removing items.
- *
- * However, if you need just a simple list you won't be required to use the
- * directives, but rather just use the classnames.
- * This demo is a simple list without using the directives.
- *
- * See the {@link ionic.directive:ionItem} documentation for more information on list items.
- *
- * @usage
- * ```html
- * <ion-list>
- *   <ion-item ng-repeat="item in items" item="item">
- *   </ion-item>
- * </ion-list>
- * ```
- *
- * @param {string=} item-type The type of this item.  See [the list CSS page](/docs/components/#list) for available item types.
- * @param {expression=} on-delete Called when a child item is deleted.
- * @param {expression=} on-reorder Called when a child item is reordered.
- * @param {boolean=} show-delete Whether to show each item delete button.
- * @param {boolean=} show-reoder Whether to show each item's reorder button.
- * @param {boolean=} can-delete Whether child items are able to be deleted or not.
- * @param {boolean=} can-reorder Whether child items can be reordered or not.
- * @param {boolean=} can-swipe Whether child items can be swiped to reveal option buttons.
- * @param {string=} delete-icon The class name of the icon to show on child items while deleting.  Defaults to `ion-minus-circled`.
- * @param {string=} reorder-icon The class name to show on child items while reordering. Defaults to `ion-navicon`.
- * @param {string=} animation An animation class to apply to the list for animating when child items enter or exit the list.
- */
-.directive('ionList', ['$timeout', function($timeout) {
-  return {
-    restrict: 'E',
-    replace: true,
-    transclude: true,
-    require: '^?$ionicScroll',
-    scope: {
-      itemType: '@',
-      canDelete: '@',
-      canReorder: '@',
-      canSwipe: '@',
-      showDelete: '=',
-      showReorder: '=',
-      onDelete: '&',
-      onReorder: '&',
-      optionButtons: '&',
-      deleteIcon: '@',
-      reorderIcon: '@'
-    },
-
-    template: '<div class="list" ng-class="{\'list-left-editing\': showDelete, \'list-right-editing\': showReorder}" ng-transclude></div>',
-
-    controller: ['$scope', '$attrs', function($scope, $attrs) {
-      this.scope = $scope;
-      this.attrs = $attrs;
-    }],
-
-    link: function($scope, $element, $attr, ionicScrollCtrl) {
-      $scope.listView = new ionic.views.ListView({
-        canSwipe: $scope.canSwipe !== "false" && !!$scope.optionButtons(),
-        el: $element[0],
-        listEl: $element[0].children[0],
-        scrollEl: ionicScrollCtrl && ionicScrollCtrl.element,
-        scrollView: ionicScrollCtrl && ionicScrollCtrl.scrollView,
-        onReorder: function(el, oldIndex, newIndex) {
-          $scope.$apply(function() {
-            $scope.onReorder({el: el, start: oldIndex, end: newIndex});
-          });
-        }
-      });
-
-      if($attr.animation) {
-        $element[0].classList.add($attr.animation);
-      }
-
-      var destroyShowReorderWatch = $scope.$watch('showReorder', function(val) {
-        if(val) {
-          $element[0].classList.add('item-options-hide');
-          $scope.listView && $scope.listView.clearDragEffects();
-        } else if(val === false) {
-          // false checking is because it could be undefined
-          // if its undefined then we don't care to do anything
-          $timeout(function(){
-            $element[0].classList.remove('item-options-hide');
-          }, 250);
-        }
-      });
-
-      $scope.$on('$destroy', function () {
-        destroyShowReorderWatch();
-      });
-
-    }
-  };
-}]);
-
-})();
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.loading', [])
-
-/**
- * @private
- * $ionicLoading service is documented
- */
-.directive('ionLoading', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    transclude: true,
-    link: function($scope, $element){
-      $element.addClass($scope.animation || '');
-    },
-    template: '<div class="loading-backdrop" ng-class="{\'show-backdrop\': showBackdrop}">' +
-                '<div class="loading" ng-transclude>' +
-                '</div>' +
-              '</div>'
-  };
-});
-
-})();
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.modal', [])
-
-/*
- * We don't document the ionModal directive, we instead document
- * the $ionicModal service
- */
-.directive('ionModal', [function() {
-  return {
-    restrict: 'E',
-    transclude: true,
-    replace: true,
-    template: '<div class="modal-backdrop">' +
-                '<div class="modal-wrapper" ng-transclude></div>' +
-              '</div>'
-  };
-}]);
-
-})();
-
-
-angular.module('ionic.ui.navBar', ['ionic.service.view', 'ngSanitize'])
-
-/**
- * @ngdoc service
- * @name $ionicNavBarDelegate
- * @module ionic
- * @description
- * Delegate for controlling the {@link ionic.directive:ionNavBar} directive.
- *
- * @usage
- *
- * ```html
- * <body ng-controller="MyCtrl">
- *   <ion-nav-bar>
- *     <button ng-click="setNavTitle('banana')">
- *       Set title to banana!
- *     </button>
- *   </ion-nav-bar>
- * </body>
- * ```
- * ```js
- * function MyCtrl($scope, $ionicNavBarDelegate) {
- *   $scope.setNavTitle = function(title) {
- *     $ionicNavBarDelegate.setTitle(title);
- *   }
- * }
- * ```
- */
-.service('$ionicNavBarDelegate', delegateService([
+IonicModule
+.service('$ionicListDelegate', delegateService([
   /**
    * @ngdoc method
-   * @name $ionicNavBarDelegate#back
-   * @description Goes back in the view history.
-   * @param {DOMEvent=} event The event object (eg from a tap event)
+   * @name $ionicListDelegate#showReorder
+   * @param {boolean=} showReorder Set whether or not this list is showing its reorder buttons.
+   * @returns {boolean} Whether the reorder buttons are shown.
    */
-  'back',
+  'showReorder',
   /**
    * @ngdoc method
-   * @name $ionicNavBarDelegate#align
-   * @description Aligns the title with the buttons in a given direction.
-   * @param {string=} direction The direction to the align the title text towards.
-   * Available: 'left', 'right', 'center'. Default: 'center'.
+   * @name $ionicListDelegate#showDelete
+   * @param {boolean=} showReorder Set whether or not this list is showing its delete buttons.
+   * @returns {boolean} Whether the delete buttons are shown.
    */
-  'align',
+  'showDelete',
   /**
    * @ngdoc method
-   * @name $ionicNavBarDelegate#showBackButton
-   * @description
-   * Set whether the {@link ionic.directive:ionNavBackButton} should be shown
-   * (if it exists).
-   * @param {boolean} show Whether to show the back button.
+   * @name $ionicListDelegate#canSwipeItems
+   * @param {boolean=} showReorder Set whether or not this list is able to swipe to show
+   * option buttons.
+   * @returns {boolean} Whether the list is able to swipe to show option buttons.
    */
-  'showBackButton',
+  'canSwipeItems',
   /**
    * @ngdoc method
-   * @name $ionicNavBarDelegate#showBar
-   * @description
-   * Set whether the {@link ionic.directive:ionNavBar} should be shown.
-   * @param {boolean} show Whether to show the bar.
+   * @name $ionicListDelegate#closeOptionButtons
+   * @description Closes any option buttons on the list that are swiped open.
    */
-  'showBar',
+  'closeOptionButtons',
   /**
    * @ngdoc method
-   * @name $ionicNavBarDelegate#setTitle
-   * @description
-   * Set the title for the {@link ionic.directive:ionNavBar}.
-   * @param {string} title The new title to show.
-   */
-  'setTitle',
-  /**
-   * @ngdoc method
-   * @name $ionicNavBarDelegate#changeTitle
-   * @description
-   * Change the title, transitioning the new title in and the old one out in a given direction.
-   * @param {string} title The new title to show.
-   * @param {string} direction The direction to transition the new title in.
-   * Available: 'forward', 'back'.
-   */
-  'changeTitle',
-  /**
-   * @ngdoc method
-   * @name $ionicNavBarDelegate#getTitle
-   * @returns {string} The current title of the navbar.
-   */
-  'getTitle',
-  /**
-   * @ngdoc method
-   * @name $ionicNavBarDelegate#getPreviousTitle
-   * @returns {string} The previous title of the navbar.
-   */
-  'getPreviousTitle'
-  /**
-   * @ngdoc method
-   * @name $ionicNavBarDelegate#$getByHandle
+   * @name $ionicListDelegate#$getByHandle
    * @param {string} handle
    * @returns `delegateInstance` A delegate instance that controls only the
-   * navBars with delegate-handle matching the given handle.
+   * {@link ionic.directive:ionList} directives with `delegate-handle` matching
+   * the given handle.
    *
-   * Example: `$ionicNavBarDelegate.$getByHandle('myHandle').setTitle('newTitle')`
+   * Example: `$ionicListDelegate.$getByHandle('my-handle').showReorder(true);`
    */
 ]))
 
+.controller('$ionicList', [
+  '$scope',
+  '$attrs',
+  '$parse',
+  '$ionicListDelegate',
+function($scope, $attrs, $parse, $ionicListDelegate) {
+
+  var isSwipeable = true;
+  var isReorderShown = false;
+  var isDeleteShown = false;
+
+  var deregisterInstance = $ionicListDelegate._registerInstance(this, $attrs.delegateHandle);
+  $scope.$on('$destroy', deregisterInstance);
+
+  this.showReorder = function(show) {
+    if (arguments.length) {
+      isReorderShown = !!show;
+    }
+    return isReorderShown;
+  };
+
+  this.showDelete = function(show) {
+    if (arguments.length) {
+      isDeleteShown = !!show;
+    }
+    return isDeleteShown;
+  };
+
+  this.canSwipeItems = function(can) {
+    if (arguments.length) {
+      isSwipeable = !!can;
+    }
+    return isSwipeable;
+  };
+
+  this.closeOptionButtons = function() {
+    this.listView && this.listView.clearDragEffects();
+  };
+}]);
+
+IonicModule
 .controller('$ionicNavBar', [
   '$scope',
   '$element',
@@ -35269,11 +40901,18 @@ function($scope, $element, $attrs, $ionicViewService, $animate, $compile, $ionic
   };
 
   this.showBackButton = function(show) {
-    $scope.backButtonShown = !!show;
+    if (arguments.length) {
+      $scope.backButtonShown = !!show;
+    }
+    return !!($scope.hasBackButton && $scope.backButtonShown);
   };
 
   this.showBar = function(show) {
-    $scope.isInvisible = !show;
+    if (arguments.length) {
+      $scope.isInvisible = !show;
+      $scope.$parent.$hasHeader = !!show;
+    }
+    return !$scope.isInvisible;
   };
 
   this.setTitle = function(title) {
@@ -35352,1350 +40991,288 @@ function($scope, $element, $attrs, $ionicViewService, $animate, $compile, $ionic
   };
 }])
 
-/**
- * @ngdoc directive
- * @name ionNavBar
- * @module ionic
- * @delegate ionic.service:$ionicNavBarDelegate
- * @restrict E
- *
- * @description
- * If we have an {@link ionic.directive:ionNavView} directive, we can also create an
- * `<ion-nav-bar>`, which will create a topbar that updates as the application state changes.
- *
- * We can add a back button by putting an {@link ionic.directive:ionNavBackButton} inside.
- *
- * We can add buttons depending on the currently visible view using
- * {@link ionic.directive:ionNavButtons}.
- *
- * Assign an [animation class](/docs/components#animations) to the element to
- * enable animated changing of titles (recommended: 'slide-left-right' or 'nav-title-slide-ios7')
- *
- * @usage
- *
- * ```html
- * <body ng-app="starter">
- *   <!-- The nav bar that will be updated as we navigate -->
- *   <ion-nav-bar class="bar-positive nav-title-slide-ios7">
- *   </ion-nav-bar>
- *
- *   <!-- where the initial view template will be rendered -->
- *   <ion-nav-view></ion-nav-view>
- * </body>
- * ```
- *
- * @param {string=} delegate-handle The handle used to identify this navBar
- * with {@link ionic.service:$ionicNavBarDelegate}.
- * @param align-title {string=} Where to align the title of the navbar.
- * Available: 'left', 'right', 'center'. Defaults to 'center'.
- */
-.directive('ionNavBar', ['$ionicViewService', '$rootScope', '$animate', '$compile',
-function($ionicViewService, $rootScope, $animate, $compile) {
-
-  return {
-    restrict: 'E',
-    controller: '$ionicNavBar',
-    scope: true,
-    compile: function(tElement, tAttrs) {
-      //We cannot transclude here because it breaks element.data() inheritance on compile
-      tElement
-        .addClass('bar bar-header nav-bar')
-        .append(
-          '<div class="buttons left-buttons"> ' +
-          '</div>' +
-          '<h1 ng-bind-html="title" class="title"></h1>' +
-          '<div class="buttons right-buttons"> ' +
-          '</div>'
-        );
-
-      return { pre: prelink };
-      function prelink($scope, $element, $attr, navBarCtrl) {
-        navBarCtrl._headerBarView = new ionic.views.HeaderBar({
-          el: $element[0],
-          alignTitle: $attr.alignTitle || 'center'
-        });
-
-        //defaults
-        $scope.backButtonShown = false;
-        $scope.shouldAnimate = true;
-        $scope.isReverse = false;
-        $scope.isInvisible = true;
-        $scope.$parent.$hasHeader = true;
-
-        $scope.$on('$destroy', function() {
-          $scope.$parent.$hasHeader = false;
-        });
-
-        $scope.$watch(function() {
-          return ($scope.isReverse ? ' reverse' : '') +
-            ($scope.isInvisible ? ' invisible' : '') +
-            (!$scope.shouldAnimate ? ' no-animation' : '');
-        }, function(className, oldClassName) {
-          $element.removeClass(oldClassName);
-          $element.addClass(className);
-        });
-
-      }
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionNavBackButton
- * @module ionic
- * @restrict E
- * @parent ionNavBar
- * @description
- * Creates a back button inside an {@link ionic.directive:ionNavBar}.
- *
- * Will show up when the user is able to go back in the current navigation stack.
- *
- * By default, will go back when clicked.  If you wish for more advanced behavior, see the
- * examples below.
- *
- * @usage
- *
- * With default click action:
- *
- * ```html
- * <ion-nav-bar>
- *   <ion-nav-back-button class="button-icon">
- *     <i class="ion-arrow-left-c"></i> Back!
- *   </ion-nav-back-button>
- * </ion-nav-bar>
- * ```
- *
- * With custom click action, using {@link ionic.service:$ionicNavBarDelegate}:
- *
- * ```html
- * <ion-nav-bar ng-controller="MyCtrl">
- *   <ion-nav-back-button class="button-icon"
- *     ng-click="canGoBack && goBack()">
- *     <i class="ion-arrow-left-c"></i> Back
- *   </ion-nav-back-button>
- * </ion-nav-bar>
- * ```
- * ```js
- * function MyCtrl($scope, $ionicNavBarDelegate) {
- *   $scope.goBack = function() {
- *     $ionicNavBarDelegate.back();
- *   };
- * }
- * ```
- *
- * Displaying the previous title on the back button, again using
- * {@link ionic.service:$ionicNavBarDelegate}.
- *
- * ```html
- * <ion-nav-bar ng-controller="MyCtrl">
- *   <ion-nav-back-button class="button button-icon ion-arrow-left-c">
- *     {% raw %}{{getPreviousTitle() || 'Back'}}{% endraw %}
- *   </ion-nav-back-button>
- * </ion-nav-bar>
- * ```
- * ```js
- * function MyCtrl($scope, $ionicNavBarDelegate) {
- *   $scope.getPreviousTitle = function() {
- *     return $ionicNavBarDelegate.getPreviousTitle();
- *   };
- * }
- * ```
- */
-.directive('ionNavBackButton', ['$ionicNgClick', function($ionicNgClick) {
-  return {
-    restrict: 'E',
-    require: '^ionNavBar',
-    compile: function(tElement, tAttrs) {
-      tElement.addClass('button back-button');
-      return function($scope, $element, $attr, navBarCtrl) {
-        if (!$attr.ngClick) {
-          $scope.$navBack = navBarCtrl.back;
-          $ionicNgClick($scope, $element, '$navBack($event)');
-        }
-
-        //If the current viewstate does not allow a back button,
-        //always hide it.
-        var deregisterListener = $scope.$parent.$on(
-          '$viewHistory.historyChange',
-          function(e, data) {
-            $scope.hasBackButton = !!data.showBack;
-          }
-        );
-        $scope.$on('$destroy', deregisterListener);
-
-        //Make sure both that a backButton is allowed in the first place,
-        //and that it is shown by the current view.
-        $scope.$watch('!!(backButtonShown && hasBackButton)', function(show) {
-          $element.toggleClass('hide', !show);
-        });
-      };
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionNavButtons
- * @module ionic
- * @restrict E
- * @parent ionNavView
- *
- * @description
- * Use ionNavButtons to set the buttons on your {@link ionic.directive:ionNavBar}
- * from within an {@link ionic.directive:ionView}.
- *
- * Any buttons you declare will be placed onto the navbar's corresponding side,
- * and then destroyed when the user leaves their parent view.
- *
- * @usage
- * ```html
- * <ion-nav-bar>
- * </ion-nav-bar>
- * <ion-nav-view>
- *   <ion-view>
- *     <ion-nav-buttons side="left">
- *       <button class="button" ng-click="doSomething()">
- *         I'm a button on the left of the navbar!
- *       </button>
- *     </ion-nav-buttons>
- *     <ion-content>
- *       Some super content here!
- *     </ion-content>
- *   </ion-view>
- * </ion-nav-view>
- * ```
- *
- * @param {string} side The side to place the buttons on in the parent
- * {@link ionic.directive:ionNavBar}. Available: 'left' or 'right'.
- */
-.directive('ionNavButtons', ['$compile', '$animate', function($compile, $animate) {
-  return {
-    require: '^ionNavBar',
-    restrict: 'E',
-    compile: function($element, $attrs) {
-      var content = $element.contents().remove();
-      return function($scope, $element, $attrs, navBarCtrl) {
-        var navElement = $attrs.side === 'right' ?
-          navBarCtrl.rightButtonsElement :
-          navBarCtrl.leftButtonsElement;
-
-        //Put all of our inside buttons into their own div,
-        //so we can remove them all when this element dies -
-        //even if the buttons have changed through an ng-repeat or the like,
-        //we just remove their div parent and they are gone.
-        var buttons = angular.element('<div>').append(content);
-
-        //Compile buttons inside content so they have access to everything
-        //something inside content does (eg parent ionicScroll)
-        $element.append(buttons);
-        $compile(buttons)($scope);
-
-        //Append buttons to navbar
-        $animate.enter(buttons, navElement);
-
-        //When our ion-nav-buttons container is destroyed,
-        //destroy everything in the navbar
-        $scope.$on('$destroy', function() {
-          $animate.leave(buttons);
-        });
-
-        // The original element is just a completely empty <ion-nav-buttons> element.
-        // make it invisible just to be sure it doesn't change any layout
-        $element.css('display', 'none');
-      };
-    }
-  };
-}]);
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.popup', [])
 
 /**
  * @private
  */
-.directive('ionPopupBackdrop', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    template: '<div class="popup-backdrop"></div>'
+IonicModule
+
+.factory('$$scrollValueCache', function() {
+  return {};
+})
+
+.controller('$ionicScroll', [
+  '$scope',
+  'scrollViewOptions',
+  '$timeout',
+  '$window',
+  '$$scrollValueCache',
+  '$location',
+  '$rootScope',
+  '$document',
+  '$ionicScrollDelegate',
+function($scope, scrollViewOptions, $timeout, $window, $$scrollValueCache, $location, $rootScope, $document, $ionicScrollDelegate) {
+
+  var self = this;
+
+  this._scrollViewOptions = scrollViewOptions; //for testing
+
+  var element = this.element = scrollViewOptions.el;
+  var $element = this.$element = angular.element(element);
+  var scrollView = this.scrollView = new ionic.views.Scroll(scrollViewOptions);
+
+  //Attach self to element as a controller so other directives can require this controller
+  //through `require: '$ionicScroll'
+  //Also attach to parent so that sibling elements can require this
+  ($element.parent().length ? $element.parent() : $element)
+    .data('$$ionicScrollController', this);
+
+  var deregisterInstance = $ionicScrollDelegate._registerInstance(
+    this, scrollViewOptions.delegateHandle
+  );
+
+  if (!angular.isDefined(scrollViewOptions.bouncing)) {
+    ionic.Platform.ready(function() {
+      scrollView.options.bouncing = !ionic.Platform.isAndroid();
+    });
   }
-})
 
-/**
- * @private
- */
-.directive('ionPopup', ['$ionicBind', function($ionicBind) {
-  return {
-    restrict: 'E',
-    replace: true,
-    transclude: true,
-    scope: true,
-    template:
-      '<div class="popup">' +
-        '<div class="popup-head">' +
-          '<h3 class="popup-title" ng-bind-html="title"></h3>' +
-          '<h5 class="popup-sub-title" ng-bind-html="subTitle" ng-if="subTitle"></h5>' +
-        '</div>' +
-        '<div class="popup-body" ng-transclude>' +
-        '</div>' +
-        '<div class="popup-buttons row">' +
-          '<button ng-repeat="button in buttons" ng-click="_buttonTapped(button, $event)" class="button col" ng-class="button.type || \'button-default\'" ng-bind-html="button.text"></button>' +
-        '</div>' +
-      '</div>',
-    link: function($scope, $element, $attr) {
-      $ionicBind($scope, $attr, {
-        title: '@',
-        buttons: '=',
-        $onButtonTap: '&onButtonTap',
-        $onClose: '&onClose'
-      });
+  var resize = angular.bind(scrollView, scrollView.resize);
+  ionic.on('resize', resize, $window);
 
-      $scope._buttonTapped = function(button, event) {
-        var result = button.onTap && button.onTap(event);
+  // set by rootScope listener if needed
+  var backListenDone = angular.noop;
 
-        // A way to return false
-        if(event.defaultPrevented) {
-          return $scope.$onClose({button: button, result: false, event: event });
-        }
-
-        // Truthy test to see if we should close the window
-        if(result) {
-          return $scope.$onClose({button: button, result: result, event: event });
-        }
-        $scope.$onButtonTap({button: button, event: event});
-      }
+  $scope.$on('$destroy', function() {
+    deregisterInstance();
+    ionic.off('resize', resize, $window);
+    $window.removeEventListener('resize', resize);
+    backListenDone();
+    if (self._rememberScrollId) {
+      $$scrollValueCache[self._rememberScrollId] = scrollView.getValues();
     }
-  };
-}]);
-
-})();
-
-(function(ionic) {
-'use strict';
-
-angular.module('ionic.ui.radio', [])
-
-/**
- * @ngdoc directive
- * @name ionRadio
- * @module ionic
- * @restrict E
- * @description
- * No different than the HTML radio input, except it's styled differently.
- *
- * Behaves like any [AngularJS radio](http://docs.angularjs.org/api/ng/input/input[radio]).
- *
- * @usage
- * ```html
- * <ion-radio ng-model="choice" value="A">Choose A</ion-radio>
- * <ion-radio ng-model="choice" value="B">Choose B</ion-radio>
- * <ion-radio ng-model="choice" value="C">Choose C</ion-radio>
- * ```
- */
-.directive('ionRadio', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: '?ngModel',
-    scope: {
-      ngModel: '=?',
-      ngValue: '=?',
-      ngChange: '&',
-      icon: '@'
-    },
-    transclude: true,
-    template: '<label class="item item-radio">' +
-                '<input type="radio" name="radio-group"' +
-                ' ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()">' +
-                '<div class="item-content disable-pointer-events" ng-transclude></div>' +
-                '<i class="radio-icon disable-pointer-events icon ion-checkmark"></i>' +
-              '</label>',
-
-    compile: function(element, attr) {
-      if(attr.name) element.children().eq(0).attr('name', attr.name);
-      if(attr.icon) element.children().eq(2).removeClass('ion-checkmark').addClass(attr.icon);
-    }
-  };
-})
-
-// The radio button is a radio powered element with only
-// one possible selection in a set of options.
-.directive('ionRadioButtons', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: '?ngModel',
-    scope: {
-      value: '@'
-    },
-    transclude: true,
-    template: '<div class="button-bar button-bar-inline" ng-transclude></div>',
-
-    controller: ['$scope', '$element', function($scope, $element) {
-
-      this.select = function(element) {
-        var c, children = $element.children();
-        for(var i = 0; i < children.length; i++) {
-          c = children[i];
-          if(c != element[0]) {
-            c.classList.remove('active');
-          }
-        }
-      };
-
-    }],
-
-    link: function($scope, $element, $attr, ngModel) {
-      var radio;
-
-      if(ngModel) {
-        //$element.bind('tap', tapHandler);
-
-        ngModel.$render = function() {
-          var children = $element.children();
-          for(var i = 0; i < children.length; i++) {
-            children[i].classList.remove('active');
-          }
-          $scope.$parent.$broadcast('radioButton.select', ngModel.$viewValue);
-        };
-      }
-    }
-  };
-})
-
-.directive('ionButtonRadio', function() {
-  return {
-    restrict: 'CA',
-    require: ['?^ngModel', '?^ionRadioButtons'],
-    link: function($scope, $element, $attr, ctrls) {
-      var ngModel = ctrls[0];
-      var radioButtons = ctrls[1];
-      if(!ngModel || !radioButtons) { return; }
-
-      var setIt = function() {
-        $element.addClass('active');
-        ngModel.$setViewValue($scope.$eval($attr.ngValue));
-
-        radioButtons.select($element);
-      };
-
-      var clickHandler = function(e) {
-        setIt();
-      };
-
-      $scope.$on('radioButton.select', function(e, val) {
-        if(val == $scope.$eval($attr.ngValue)) {
-          $element.addClass('active');
-        }
-      });
-
-      ionic.on('tap', clickHandler, $element[0]);
-
-      $scope.$on('$destroy', function() {
-        ionic.off('tap', clickHandler);
-      });
-    }
-  };
-});
-
-})(window.ionic);
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.scroll', [])
-
-/**
- * @ngdoc directive
- * @name ionScroll
- * @module ionic
- * @delegate ionic.service:$ionicScrollDelegate
- * @restrict E
- *
- * @description
- * Creates a scrollable container for all content inside.
- *
- * @param {string=} delegate-handle The handle used to identify this scrollView
- * with {@link ionic.service:$ionicScrollDelegate}.
- * @param {string=} direction Which way to scroll. 'x' or 'y'. Default 'y'.
- * @param {boolean=} paging Whether to scroll with paging.
- * @param {expression=} on-refresh Called on pull-to-refresh, triggered by an {@link ionic.directive:ionRefresher}.
- * @param {expression=} on-scroll Called whenever the user scrolls.
- * @param {boolean=} scrollbar-x Whether to show the horizontal scrollbar. Default false.
- * @param {boolean=} scrollbar-x Whether to show the vertical scrollbar. Default true.
- */
-.directive('ionScroll', [
-  '$timeout',
-  '$controller',
-  '$ionicBind',
-function($timeout, $controller, $ionicBind) {
-  return {
-    restrict: 'E',
-    scope: true,
-    controller: function() {},
-    compile: function(element, attr) {
-      element.addClass('scroll-view');
-
-      //We cannot transclude here because it breaks element.data() inheritance on compile
-      var innerElement = angular.element('<div class="scroll"></div>');
-      innerElement.append(element.contents());
-      element.append(innerElement);
-
-      return { pre: prelink };
-      function prelink($scope, $element, $attr) {
-        var scrollView, scrollCtrl;
-
-        $ionicBind($scope, $attr, {
-          direction: '@',
-          paging: '@',
-          $onScroll: '&onScroll',
-          scroll: '@',
-          scrollbarX: '@',
-          scrollbarY: '@',
-        });
-
-        if (angular.isDefined($attr.padding)) {
-          $scope.$watch($attr.padding, function(newVal) {
-            innerElement.toggleClass('padding', !!newVal);
-          });
-        }
-        if($scope.$eval($scope.paging) === true) {
-          innerElement.addClass('scroll-paging');
-        }
-
-        if(!$scope.direction) { $scope.direction = 'y'; }
-        var isPaging = $scope.$eval($scope.paging) === true;
-
-        var scrollViewOptions= {
-          el: $element[0],
-          delegateHandle: $attr.delegateHandle,
-          paging: isPaging,
-          scrollbarX: $scope.$eval($scope.scrollbarX) !== false,
-          scrollbarY: $scope.$eval($scope.scrollbarY) !== false,
-          scrollingX: $scope.direction.indexOf('x') >= 0,
-          scrollingY: $scope.direction.indexOf('y') >= 0
-        };
-        if (isPaging) {
-          scrollViewOptions.speedMultiplier = 0.8;
-          scrollViewOptions.bouncing = false;
-        }
-
-        scrollCtrl = $controller('$ionicScroll', {
-          $scope: $scope,
-          scrollViewOptions: scrollViewOptions
-        });
-        scrollView = $scope.$parent.scrollView = scrollCtrl.scrollView;
-      }
-    }
-  };
-}]);
-
-})();
-
-(function() {
-'use strict';
-
-/**
- * @description
- * The sideMenuCtrl lets you quickly have a draggable side
- * left and/or right menu, which a center content area.
- */
-
-angular.module('ionic.ui.sideMenu', ['ionic.service.gesture', 'ionic.service.view'])
-
-/**
- * The internal controller for the side menu controller. This
- * extends our core Ionic side menu controller and exposes
- * some side menu stuff on the current scope.
- */
-
-.run(['$ionicViewService', function($ionicViewService) {
-  // set that the side-menus directive should not animate when transitioning to it
-  $ionicViewService.disableRegisterByTagName('ion-side-menus');
-}])
-
-/**
- * @ngdoc service
- * @name $ionicSideMenuDelegate
- * @module ionic
- *
- * @description
- * Delegate for controlling the {@link ionic.directive:ionSideMenus} directive.
- *
- * Methods called directly on the $ionicSideMenuDelegate service will control all side
- * menus.  Use the {@link ionic.service:$ionicSideMenuDelegate#$getByHandle $getByHandle}
- * method to control specific ionSideMenus instances.
- *
- * @usage
- *
- * ```html
- * <body ng-controller="MainCtrl">
- *   <ion-side-menus>
- *     <ion-pane ion-side-menu-content>
- *       Content!
- *       <button ng-click="toggleLeftSideMenu()">
- *         Toggle Left Side Menu
- *       </button>
- *     </ion-pane>
- *     <ion-side-menu side="left">
- *       Left Menu!
- *     <ion-side-menu>
- *   </ion-side-menus>
- * </body>
- * ```
- * ```js
- * function MainCtrl($scope, $ionicSideMenuDelegate) {
- *   $scope.toggleLeftSideMenu = function() {
- *     $ionicSideMenuDelegate.toggleLeft();
- *   };
- * }
- * ```
- */
-.service('$ionicSideMenuDelegate', delegateService([
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#toggleLeft
-   * @description Toggle the left side menu (if it exists).
-   * @param {boolean=} isOpen Whether to open or close the menu.
-   * Default: Toggles the menu.
-   */
-  'toggleLeft',
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#toggleRight
-   * @description Toggle the right side menu (if it exists).
-   * @param {boolean=} isOpen Whether to open or close the menu.
-   * Default: Toggles the menu.
-   */
-  'toggleRight',
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#isOpenLeft
-   * @returns {boolean} Whether the left menu is currently opened.
-   */
-  'isOpenLeft',
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#isOpenRight
-   * @returns {boolean} Whether the right menu is currently opened.
-   */
-  'isOpenRight',
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#canDragContent
-   * @param {boolean=} canDrag Set whether the content can or cannot be dragged to open
-   * side menus.
-   * @returns {boolean} Whether the content can be dragged to open side menus.
-   */
-  'canDragContent',
-  /**
-   * @ngdoc method
-   * @name $ionicSideMenuDelegate#$getByHandle
-   * @param {string} handle
-   * @returns `delegateInstance` A delegate instance that controls only the
-   * {@link ionic.directive:ionSideMenus} directives with `delegate-handle` matching
-   * the given handle.
-   *
-   * Example: `$ionicSideMenuDelegate.$getByHandle('my-handle').toggleLeft();`
-   */
-]))
-
-/**
- * @ngdoc directive
- * @name ionSideMenus
- * @module ionic
- * @delegate ionic.service:$ionicSideMenuDelegate
- * @restrict E
- *
- * @description
- * A container element for side menu(s) and the main content. Allows the left
- * and/or right side menu to be toggled by dragging the main content area side
- * to side.
- *
- * ![Side Menu](http://ionicframework.com.s3.amazonaws.com/docs/controllers/sidemenu.gif)
- *
- * For more information on side menus, check out the documenation for
- * {@link ionic.directive:ionSideMenuContent} and
- * {@link ionic.directive:ionSideMenu}.
- *
- * @usage
- * To use side menus, add an `<ion-side-menus>` parent element,
- * an `<ion-side-menu-content>` for the center content,
- * and one or more `<ion-side-menu>` directives.
- *
- * ```html
- * <ion-side-menus>
- *   <!-- Center content -->
- *   <ion-side-menu-content ng-controller="ContentController">
- *   </io-side-menu-content>
- *
- *   <!-- Left menu -->
- *   <ion-side-menu side="left">
- *   </ion-side-menu>
- *
- *   <!-- Right menu -->
- *   <ion-side-menu side="right">
- *   </ion-side-menu>
- * </ion-side-menus>
- * ```
- * ```js
- * function ContentController($scope, $ionicSideMenuDelegate) {
- *   $scope.toggleLeft = function() {
- *     $ionicSideMenuDelegate.toggleLeft();
- *   };
- * }
- * ```
- *
- * @param {string=} delegate-handle The handle used to identify this side menu
- * with {@link ionic.service:$ionicSideMenuDelegate}.
- *
- */
-.directive('ionSideMenus', function() {
-  return {
-    restrict: 'ECA',
-    controller: ['$scope', '$attrs', '$ionicSideMenuDelegate', function($scope, $attrs, $ionicSideMenuDelegate) {
-      var _this = this;
-
-      angular.extend(this, ionic.controllers.SideMenuController.prototype);
-
-      ionic.controllers.SideMenuController.call(this, {
-        left: { width: 275 },
-        right: { width: 275 }
-      });
-
-      this.canDragContent = function(canDrag) {
-        if (arguments.length) {
-          $scope.dragContent = !!canDrag;
-        }
-        return $scope.dragContent;
-      };
-
-      $scope.sideMenuContentTranslateX = 0;
-
-      var deregisterInstance = $ionicSideMenuDelegate._registerInstance(
-        this, $attrs.delegateHandle
-      );
-
-      $scope.$on('$destroy', deregisterInstance);
-    }],
-    replace: true,
-    transclude: true,
-    template: '<div class="view" ng-transclude></div>'
-  };
-})
-
-/**
- * @ngdoc directive
- * @name ionSideMenuContent
- * @module ionic
- * @restrict E
- * @parent ionic.directive:ionSideMenus
- *
- * @description
- * A container for the main visible content, sibling to one or more
- * {@link ionic.directive:ionSideMenu} directives.
- *
- * @usage
- * ```html
- * <ion-side-menu-content
- *   drag-content="canDrag">
- * </ion-side-menu-content>
- * ```
- * For a complete side menu example, see the
- * {@link ionic.directive:ionSideMenus} documentation.
- *
- * @param {boolean=} drag-content Whether the content can be dragged.
- *
- */
-.directive('ionSideMenuContent', ['$timeout', '$ionicGesture', function($timeout, $ionicGesture) {
-  return {
-    restrict: 'EA', //DEPRECATED 'A'
-    require: '^ionSideMenus',
-    scope: true,
-    compile: function(element, attr) {
-      return { pre: prelink };
-      function prelink($scope, $element, $attr, sideMenuCtrl) {
-
-        $element.addClass('menu-content pane');
-
-        if (angular.isDefined(attr.dragContent)) {
-          $scope.$watch(attr.dragContent, function(value) {
-            sideMenuCtrl.canDragContent(value);
-          });
-        } else {
-          sideMenuCtrl.canDragContent(true);
-        }
-
-        var defaultPrevented = false;
-        var isDragging = false;
-
-        // Listen for taps on the content to close the menu
-        function contentTap(e) {
-          if(sideMenuCtrl.getOpenAmount() !== 0) {
-            sideMenuCtrl.close();
-            e.gesture.srcEvent.preventDefault();
-          }
-        }
-        ionic.on('tap', contentTap, $element[0]);
-
-        var dragFn = function(e) {
-          if($scope.dragContent) {
-            if(defaultPrevented || e.gesture.srcEvent.defaultPrevented) {
-              return;
-            }
-            isDragging = true;
-            sideMenuCtrl._handleDrag(e);
-            e.gesture.srcEvent.preventDefault();
-          }
-        };
-
-        var dragVertFn = function(e) {
-          if(isDragging) {
-            e.gesture.srcEvent.preventDefault();
-          }
-        };
-
-        //var dragGesture = Gesture.on('drag', dragFn, $element);
-        var dragRightGesture = $ionicGesture.on('dragright', dragFn, $element);
-        var dragLeftGesture = $ionicGesture.on('dragleft', dragFn, $element);
-        var dragUpGesture = $ionicGesture.on('dragup', dragVertFn, $element);
-        var dragDownGesture = $ionicGesture.on('dragdown', dragVertFn, $element);
-
-        var dragReleaseFn = function(e) {
-          isDragging = false;
-          if(!defaultPrevented) {
-            sideMenuCtrl._endDrag(e);
-          }
-          defaultPrevented = false;
-        };
-
-        var releaseGesture = $ionicGesture.on('release', dragReleaseFn, $element);
-
-        sideMenuCtrl.setContent({
-          onDrag: function(e) {},
-          endDrag: function(e) {},
-          getTranslateX: function() {
-            return $scope.sideMenuContentTranslateX || 0;
-          },
-          setTranslateX: ionic.animationFrameThrottle(function(amount) {
-            $element[0].style[ionic.CSS.TRANSFORM] = 'translate3d(' + amount + 'px, 0, 0)';
-            $timeout(function() {
-              $scope.sideMenuContentTranslateX = amount;
-            });
-          }),
-          enableAnimation: function() {
-            //this.el.classList.add(this.animateClass);
-            $scope.animationEnabled = true;
-            $element[0].classList.add('menu-animated');
-          },
-          disableAnimation: function() {
-            //this.el.classList.remove(this.animateClass);
-            $scope.animationEnabled = false;
-            $element[0].classList.remove('menu-animated');
-          }
-        });
-
-        // Cleanup
-        $scope.$on('$destroy', function() {
-          $ionicGesture.off(dragLeftGesture, 'dragleft', dragFn);
-          $ionicGesture.off(dragRightGesture, 'dragright', dragFn);
-          $ionicGesture.off(dragUpGesture, 'dragup', dragFn);
-          $ionicGesture.off(dragDownGesture, 'dragdown', dragFn);
-          $ionicGesture.off(releaseGesture, 'release', dragReleaseFn);
-          ionic.off('tap', contentTap, $element[0]);
-        });
-      }
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name ionSideMenu
- * @module ionic
- * @restrict E
- * @parent ionic.directive:ionSideMenus
- *
- * @description
- * A container for a side menu, sibling to an {@link ionic.directive:ionSideMenuContent} directive.
- *
- * @usage
- * ```html
- * <ion-side-menu
- *   side="left"
- *   width="myWidthValue + 20"
- *   is-enabled="shouldLeftSideMenuBeEnabled()">
- * </ion-side-menu>
- * ```
- * For a complete side menu example, see the
- * {@link ionic.directive:ionSideMenus} documentation.
- *
- * @param {string} side Which side the side menu is currently on.  Allowed values: 'left' or 'right'.
- * @param {boolean=} is-enabled Whether this side menu is enabled.
- * @param {number=} width How many pixels wide the side menu should be.  Defaults to 275.
- */
-.directive('ionSideMenu', function() {
-  return {
-    restrict: 'E',
-    require: '^ionSideMenus',
-    scope: true,
-    compile: function(element, attr) {
-      angular.isUndefined(attr.isEnabled) && attr.$set('isEnabled', 'true');
-      angular.isUndefined(attr.width) && attr.$set('width', '275');
-
-      element.addClass('menu menu-' + attr.side);
-
-      return function($scope, $element, $attr, sideMenuCtrl) {
-        $scope.side = $attr.side || 'left';
-
-        var sideMenu = sideMenuCtrl[$scope.side] = new ionic.views.SideMenu({
-          width: 275,
-          el: $element[0],
-          isEnabled: true
-        });
-
-        $scope.$watch($attr.width, function(val) {
-          var numberVal = +val;
-          if (numberVal && numberVal == val) {
-            sideMenu.setWidth(+val);
-          }
-        });
-        $scope.$watch($attr.isEnabled, function(val) {
-          sideMenu.setIsEnabled(!!val);
-        });
-      };
-    }
-  };
-})
-
-/**
- * @ngdoc directive
- * @name menuToggle
- * @module ionic
- * @restrict AC
- *
- * @description
- * Toggle a side menu on the given side
- *
- * @usage
- * Below is an example of a link within a nav bar. Tapping this link would
- * automatically open the given side menu
- *
- * ```html
- * <ion-view>
- *   <ion-nav-buttons side="left">
- *    <button menu-toggle="left" class="button button-icon icon ion-navicon"></button>
- *   </ion-nav-buttons>
- *  ...
- * </ion-view>
- * ```
- */
-.directive('menuToggle', ['$ionicViewService', function($ionicViewService) {
-  return {
-    restrict: 'AC',
-    require: '^ionSideMenus',
-    link: function($scope, $element, $attr, sideMenuCtrl) {
-      var side = $scope.$eval($attr.menuToggle) || 'left';
-      $element.bind('click', function(){
-        if(side === 'left') {
-          sideMenuCtrl.toggleLeft();
-        } else if(side === 'right') {
-          sideMenuCtrl.toggleRight();
-        }
-      });
-    }
-  };
-}])
-
-/**
- * @ngdoc directive
- * @name menuClose
- * @module ionic
- * @restrict AC
- *
- * @description
- * Closes a side menu which is currently opened.
- *
- * @usage
- * Below is an example of a link within a side menu. Tapping this link would
- * automatically close the currently opened menu
- *
- * ```html
- * <a nav-clear menu-close href="#/home" class="item">Home</a>
- * ```
- */
-.directive('menuClose', ['$ionicViewService', function($ionicViewService) {
-  return {
-    restrict: 'AC',
-    require: '^ionSideMenus',
-    link: function($scope, $element, $attr, sideMenuCtrl) {
-      $element.bind('click', function(){
-        sideMenuCtrl.close();
-      });
-    }
-  };
-}]);
-
-})();
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.slideBox', [])
-
-/**
- * @ngdoc service
- * @name $ionicSlideBoxDelegate
- * @module ionic
- * @description
- * Delegate that controls the {@link ionic.directive:ionSlideBox} directive.
- *
- * Methods called directly on the $ionicSlideBoxDelegate service will control all side
- * menus.  Use the {@link ionic.service:$ionicSlideBoxDelegate#$getByHandle $getByHandle}
- * method to control specific slide box instances.
- *
- * @usage
- *
- * ```html
- * <body ng-controller="MyCtrl">
- *   <ion-slide-box>
- *     <ion-slide>
- *       <div class="box blue">
- *         <button ng-click="nextSlide()">Next slide!</button>
- *       </div>
- *     </ion-slide>
- *     <ion-slide>
- *       <div class="box red">
- *         Slide 2!
- *       </div>
- *     </ion-slide>
- *   </ion-slide-box>
- * </body>
- * ```
- * ```js
- * function MyCtrl($scope, $ionicSlideBoxDelegate) {
- *   $scope.nextSlide = function() {
- *     $ionicSlideBoxDelegate.next();
- *   }
- * }
- * ```
- */
-.service('$ionicSlideBoxDelegate', delegateService([
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#update
-   * @description
-   * Update the slidebox (for example if using Angular with ng-repeat,
-   * resize it for the elements inside).
-   */
-  'update',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#slide
-   * @param {number} to The index to slide to.
-   * @param {number=} speed The number of milliseconds for the change to take.
-   */
-  'slide',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#previous
-   * @description Go to the previous slide. Wraps around if at the beginning.
-   */
-  'previous',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#next
-   * @description Go to the next slide. Wraps around if at the end.
-   */
-  'next',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#stop
-   * @description Stop sliding. The slideBox will not move again until
-   * explicitly told to do so.
-   */
-  'stop',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#currentIndex
-   * @returns number The index of the current slide.
-   */
-  'currentIndex',
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#slidesCount
-   * @returns number The number of slides there are currently.
-   */
-  'slidesCount'
-  /**
-   * @ngdoc method
-   * @name $ionicSlideBoxDelegate#$getByHandle
-   * @param {string} handle
-   * @returns `delegateInstance` A delegate instance that controls only the
-   * {@link ionic.directive:ionSlideBox} directives with `delegate-handle` matching
-   * the given handle.
-   *
-   * Example: `$ionicSlideBoxDelegate.$getByHandle('my-handle').stop();`
-   */
-]))
-
-/**
- * The internal controller for the slide box controller.
- */
-
-/**
- * @ngdoc directive
- * @name ionSlideBox
- * @module ionic
- * @delegate ionic.service:$ionicSlideBoxDelegate
- * @restrict E
- * @description
- * The Slide Box is a multi-page container where each page can be swiped or dragged between:
- *
- * ![SlideBox](http://ionicframework.com.s3.amazonaws.com/docs/controllers/slideBox.gif)
- *
- * @usage
- * ```html
- * <ion-slide-box>
- *   <ion-slide>
- *     <div class="box blue"><h1>BLUE</h1></div>
- *   </ion-slide>
- *   <ion-slide>
- *     <div class="box yellow"><h1>YELLOW</h1></div>
- *   </ion-slide>
- *   <ion-slide>
- *     <div class="box pink"><h1>PINK</h1></div>
- *   </ion-slide>
- * </ion-slide-box>
- * ```
- *
- * @param {string=} delegate-handle The handle used to identify this slideBox
- * with {@link ionic.service:$ionicSlideBoxDelegate}.
- * @param {boolean=} does-continue Whether the slide box should automatically slide.
- * @param {number=} slide-interval How many milliseconds to wait to change slides (if does-continue is true). Defaults to 4000.
- * @param {boolean=} show-pager Whether a pager should be shown for this slide box.
- * @param {boolean=} disable-scroll Whether to disallow scrolling/dragging of the slide-box content.
- * @param {expression=} on-slide-changed Expression called whenever the slide is changed.
- * @param {expression=} active-slide Model to bind the current slide to.
- */
-.directive('ionSlideBox', [
-  '$timeout',
-  '$compile',
-  '$ionicSlideBoxDelegate',
-function($timeout, $compile, $ionicSlideBoxDelegate) {
-  return {
-    restrict: 'E',
-    replace: true,
-    transclude: true,
-    scope: {
-      doesContinue: '@',
-      slideInterval: '@',
-      showPager: '@',
-      disableScroll: '@',
-      onSlideChanged: '&',
-      activeSlide: '=?'
-    },
-    controller: ['$scope', '$element', '$attrs', function($scope, $element, $attrs) {
-      var _this = this;
-
-      var continuous = $scope.$eval($scope.doesContinue) === true;
-      var slideInterval = continuous ? $scope.$eval($scope.slideInterval) || 4000 : 0;
-
-      var slider = new ionic.views.Slider({
-        el: $element[0],
-        auto: slideInterval,
-        disableScroll: ($scope.$eval($scope.disableScroll) === true) || false,
-        continuous: continuous,
-        startSlide: $scope.activeSlide,
-        slidesChanged: function() {
-          $scope.currentSlide = slider.currentIndex();
-
-          // Try to trigger a digest
-          $timeout(function() {});
-        },
-        callback: function(slideIndex) {
-          $scope.currentSlide = slideIndex;
-          $scope.onSlideChanged({index:$scope.currentSlide});
-          $scope.$parent.$broadcast('slideBox.slideChanged', slideIndex);
-          $scope.activeSlide = slideIndex;
-          // Try to trigger a digest
-          $timeout(function() {});
-        }
-      });
-
-      $scope.$watch('activeSlide', function(nv) {
-        if(angular.isDefined(nv)){
-          slider.slide(nv);
-        }
-      });
-
-      $scope.$on('slideBox.nextSlide', function() {
-        slider.next();
-      });
-
-      $scope.$on('slideBox.prevSlide', function() {
-        slider.prev();
-      });
-
-      $scope.$on('slideBox.setSlide', function(e, index) {
-        slider.slide(index);
-      });
-
-      //Exposed for testing
-      this.__slider = slider;
-
-      var deregisterInstance = $ionicSlideBoxDelegate._registerInstance(slider, $attrs.delegateHandle);
-
-      $scope.$on('$destroy', deregisterInstance);
-
-      this.slidesCount = function() {
-        return slider.slidesCount();
-      };
-
+  });
+
+  $element.on('scroll', function(e) {
+    var detail = (e.originalEvent || e).detail || {};
+    $scope.$onScroll && $scope.$onScroll({
+      event: e,
+      scrollTop: detail.scrollTop || 0,
+      scrollLeft: detail.scrollLeft || 0
+    });
+  });
+
+  $scope.$on('$viewContentLoaded', function(e, historyData) {
+    //only the top-most scroll area under a view should remember that view's
+    //scroll position
+    if (e.defaultPrevented) { return; }
+    e.preventDefault();
+
+    var viewId = historyData && historyData.viewId;
+    if (viewId) {
       $timeout(function() {
-        slider.load();
-      });
-    }],
-    template: '<div class="slider">\
-            <div class="slider-slides" ng-transclude>\
-            </div>\
-          </div>',
+        self.rememberScrollPosition(viewId);
+        self.scrollToRememberedPosition();
 
-    link: function($scope, $element, $attr, slideBoxCtrl) {
-      // If the pager should show, append it to the slide box
-      if($scope.$eval($scope.showPager) !== false) {
-        var childScope = $scope.$new();
-        var pager = angular.element('<ion-pager></ion-pager>');
-        $element.append(pager);
-        $compile(pager)(childScope);
-      }
-    }
-  };
-}])
-
-.directive('ionSlide', function() {
-  return {
-    restrict: 'E',
-    require: '^ionSlideBox',
-    compile: function(element, attr) {
-      element.addClass('slider-slide');
-      return function($scope, $element, $attr) {};
-    },
-  };
-})
-
-.directive('ionPager', function() {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: '^ionSlideBox',
-    template: '<div class="slider-pager"><span class="slider-pager-page" ng-repeat="slide in numSlides() track by $index" ng-class="{active: $index == currentSlide}"><i class="icon ion-record"></i></span></div>',
-    link: function($scope, $element, $attr, slideBox) {
-      var selectPage = function(index) {
-        var children = $element[0].children;
-        var length = children.length;
-        for(var i = 0; i < length; i++) {
-          if(i == index) {
-            children[i].classList.add('active');
-          } else {
-            children[i].classList.remove('active');
+        backListenDone = $rootScope.$on('$viewHistory.viewBack', function(e, fromViewId, toViewId) {
+          //When going back from this view, forget its saved scroll position
+          if (viewId === fromViewId) {
+            self.forgetScrollPosition();
           }
-        }
-      };
+        });
+      }, 1, false);
+    }
+  });
 
-      $scope.numSlides = function() {
-        return new Array(slideBox.slidesCount());
-      };
+  $timeout(function() {
+    scrollView.run();
+  });
 
-      $scope.$watch('currentSlide', function(v) {
-        selectPage(v);
+  this._rememberScrollId = null;
+
+  this.getScrollView = function() {
+    return this.scrollView;
+  };
+
+  this.getScrollPosition = function() {
+    return this.scrollView.getValues();
+  };
+
+  this.resize = function() {
+    return $timeout(resize);
+  };
+
+  this.scrollTop = function(shouldAnimate) {
+    this.resize().then(function() {
+      scrollView.scrollTo(0, 0, !!shouldAnimate);
+    });
+  };
+
+  this.scrollBottom = function(shouldAnimate) {
+    this.resize().then(function() {
+      var max = scrollView.getScrollMax();
+      scrollView.scrollTo(max.left, max.top, !!shouldAnimate);
+    });
+  };
+
+  this.scrollTo = function(left, top, shouldAnimate) {
+    this.resize().then(function() {
+      scrollView.scrollTo(left, top, !!shouldAnimate);
+    });
+  };
+
+  this.scrollBy = function(left, top, shouldAnimate) {
+    this.resize().then(function() {
+      scrollView.scrollBy(left, top, !!shouldAnimate);
+    });
+  };
+
+  this.anchorScroll = function(shouldAnimate) {
+    this.resize().then(function() {
+      var hash = $location.hash();
+      var elm = hash && $document[0].getElementById(hash);
+      if (hash && elm) {
+        var scroll = ionic.DomUtil.getPositionInParent(elm, self.$element);
+        scrollView.scrollTo(scroll.left, scroll.top, !!shouldAnimate);
+      } else {
+        scrollView.scrollTo(0,0, !!shouldAnimate);
+      }
+    });
+  };
+
+  this.rememberScrollPosition = function(id) {
+    if (!id) {
+      throw new Error("Must supply an id to remember the scroll by!");
+    }
+    this._rememberScrollId = id;
+  };
+  this.forgetScrollPosition = function() {
+    delete $$scrollValueCache[this._rememberScrollId];
+    this._rememberScrollId = null;
+  };
+  this.scrollToRememberedPosition = function(shouldAnimate) {
+    var values = $$scrollValueCache[this._rememberScrollId];
+    if (values) {
+      this.resize().then(function() {
+        scrollView.scrollTo(+values.left, +values.top, shouldAnimate);
       });
     }
   };
 
-});
 
-})();
 
-angular.module('ionic.ui.tabs', ['ionic.service.view'])
-
-.run(['$ionicViewService', function($ionicViewService) {
-  // set that the tabs directive should not animate when transitioning
-  // to it. Instead, the children <tab> directives would animate
-  $ionicViewService.disableRegisterByTagName('ion-tabs');
-}])
-
-/**
- * @ngdoc service
- * @name $ionicTabsDelegate
- * @module ionic
- *
- * @description
- * Delegate for controlling the {@link ionic.directive:ionTabs} directive.
- *
- * Methods called directly on the $ionicTabsDelegate service will control all ionTabs
- * directives. Use the {@link ionic.service:$ionicTabsDelegate#$getByHandle $getByHandle}
- * method to control specific ionTabs instances.
- *
- * @usage
- *
- * ```html
- * <body ng-controller="MyCtrl">
- *   <ion-tabs>
- *
- *     <ion-tab title="Tab 1">
- *       Hello tab 1!
- *       <button ng-click="selectTabWithIndex(1)">Select tab 2!</button>
- *     </ion-tab>
- *     <ion-tab title="Tab 2">Hello tab 2!</ion-tab>
- *
- *   </ion-tabs>
- * </body>
- * ```
- * ```js
- * function MyCtrl($scope, $ionicTabsDelegate) {
- *   $scope.selectTabWithIndex = function(index) {
- *     $ionicTabsDelegate.select(index);
- *   }
- * }
- * ```
- */
-.service('$ionicTabsDelegate', delegateService([
   /**
-   * @ngdoc method
-   * @name $ionicTabsDelegate#select
-   * @description Select the tab matching the given index.
-   *
-   * @param {number} index Index of the tab to select.
-   * @param {boolean=} shouldChangeHistory Whether this selection should load this tab's
-   * view history (if it exists) and use it, or just load the default page.
-   * Default false.
-   * Hint: you probably want this to be true if you have an
-   * {@link ionic.directive:ionNavView} inside your tab.
+   * @private
    */
-  'select',
-  /**
-   * @ngdoc method
-   * @name $ionicTabsDelegate#selectedIndex
-   * @returns `number` The index of the selected tab, or -1.
-   */
-  'selectedIndex'
-  /**
-   * @ngdoc method
-   * @name $ionicTabsDelegate#$getByHandle
-   * @param {string} handle
-   * @returns `delegateInstance` A delegate instance that controls only the
-   * {@link ionic.directive:ionTabs} directives with `delegate-handle` matching
-   * the given handle.
-   *
-   * Example: `$ionicTabsDelegate.$getByHandle('my-handle').select(0);`
-   */
-]))
+  this._setRefresher = function(refresherScope, refresherElement) {
+    var refresher = this.refresher = refresherElement;
+    var refresherHeight = self.refresher.clientHeight || 0;
+    scrollView.activatePullToRefresh(refresherHeight, function() {
+      refresher.classList.add('active');
+      refresherScope.$onPulling();
+    }, function() {
+      refresher.classList.remove('refreshing');
+      refresher.classList.remove('active');
+    }, function() {
+      refresher.classList.add('refreshing');
+      refresherScope.$onRefresh();
+    });
+  };
+}]);
 
-.controller('ionicTabs', ['$scope', '$ionicViewService', '$element', function($scope, $ionicViewService, $element) {
+
+IonicModule
+.controller('$ionicSideMenus', [
+  '$scope',
+  '$attrs',
+  '$ionicSideMenuDelegate',
+  '$ionicPlatform',
+function($scope, $attrs, $ionicSideMenuDelegate, $ionicPlatform) {
+  var self = this;
+  angular.extend(this, ionic.controllers.SideMenuController.prototype);
+
+  this.$scope = $scope;
+
+  ionic.controllers.SideMenuController.call(this, {
+    left: { width: 275 },
+    right: { width: 275 }
+  });
+
+  this.canDragContent = function(canDrag) {
+    if (arguments.length) {
+      $scope.dragContent = !!canDrag;
+    }
+    return $scope.dragContent;
+  };
+
+  this.isDraggableTarget = function(e) {
+    return $scope.dragContent &&
+           (!e.gesture.srcEvent.defaultPrevented &&
+            !e.target.tagName.match(/input|textarea|select|object|embed/i) &&
+            !e.target.isContentEditable &&
+            !(e.target.dataset ? e.target.dataset.preventScroll : e.target.getAttribute('data-prevent-default') == 'true'));
+  };
+
+  $scope.sideMenuContentTranslateX = 0;
+
+
+  var deregisterBackButtonAction = angular.noop;
+  var closeSideMenu = angular.bind(this, this.close);
+  $scope.$watch(function() {
+    return self.getOpenAmount() !== 0;
+  }, function(isOpen) {
+    deregisterBackButtonAction();
+    if (isOpen) {
+      deregisterBackButtonAction = $ionicPlatform.registerBackButtonAction(
+        closeSideMenu,
+        PLATFORM_BACK_BUTTON_PRIORITY_SIDE_MENU
+      );
+    }
+  });
+
+  var deregisterInstance = $ionicSideMenuDelegate._registerInstance(
+    this, $attrs.delegateHandle
+  );
+  $scope.$on('$destroy', function() {
+    deregisterInstance();
+    deregisterBackButtonAction();
+  });
+}]);
+
+IonicModule
+.controller('$ionicTab', [
+  '$scope',
+  '$ionicViewService',
+  '$attrs',
+  '$location',
+  '$state',
+function($scope, $ionicViewService, $attrs, $location, $state) {
+  this.$scope = $scope;
+
+  //All of these exposed for testing
+  this.hrefMatchesState = function() {
+    return $attrs.href && $location.path().indexOf(
+      $attrs.href.replace(/^#/, '').replace(/\/$/, '')
+    ) === 0;
+  };
+  this.srefMatchesState = function() {
+    return $attrs.uiSref && $state.includes( $attrs.uiSref.split('(')[0] );
+  };
+  this.navNameMatchesState = function() {
+    return this.navViewName && $ionicViewService.isCurrentStateNavView(this.navViewName);
+  };
+
+  this.tabMatchesState = function() {
+    return this.hrefMatchesState() || this.srefMatchesState() || this.navNameMatchesState();
+  };
+}]);
+
+IonicModule
+.controller('$ionicTabs', [
+  '$scope', 
+  '$ionicViewService', 
+  '$element', 
+function($scope, $ionicViewService, $element) {
   var _selectedTab = null;
   var self = this;
   self.tabs = [];
@@ -36785,298 +41362,79 @@ angular.module('ionic.ui.tabs', ['ionic.service.view'])
       }
     }
   };
-}])
+}]);
 
-/**
- * @ngdoc directive
- * @name ionTabs
- * @module ionic
- * @delegate ionic.service:$ionicTabsDelegate
- * @restrict E
- * @codepen KbrzJ
- *
- * @description
- * Powers a multi-tabbed interface with a Tab Bar and a set of "pages" that can be tabbed
- * through.
- *
- * Assign any [tabs class](/docs/components#tabs) or
- * [animation class](/docs/components#animation) to the element to define
- * its look and feel.
- *
- * See the {@link ionic.directive:ionTab} directive's documentation for more details on
- * individual tabs.
- *
- * @usage
- * ```html
- * <ion-tabs class="tabs-positive tabs-icon-only">
- *
- *   <ion-tab title="Home" icon-on="ion-ios7-filing" icon-off="ion-ios7-filing-outline">
- *     <!-- Tab 1 content -->
- *   </ion-tab>
- *
- *   <ion-tab title="About" icon-on="ion-ios7-clock" icon-off="ion-ios7-clock-outline">
- *     <!-- Tab 2 content -->
- *   </ion-tab>
- *
- *   <ion-tab title="Settings" icon-on="ion-ios7-gear" icon-off="ion-ios7-gear-outline">
- *     <!-- Tab 3 content -->
- *   </ion-tab>
- *
- * </ion-tabs>
- * ```
- *
- * @param {string=} delegate-handle The handle used to identify these tabs
- * with {@link ionic.service:$ionicTabsDelegate}.
+
+/*
+ * We don't document the ionActionSheet directive, we instead document
+ * the $ionicActionSheet service
  */
-
-.directive('ionTabs', ['$ionicViewService', '$ionicTabsDelegate', function($ionicViewService, $ionicTabsDelegate) {
+IonicModule
+.directive('ionActionSheet', ['$document', function($document) {
   return {
     restrict: 'E',
     scope: true,
-    controller: 'ionicTabs',
-    compile: function(element, attr) {
-      element.addClass('view');
-      //We cannot transclude here because it breaks element.data() inheritance on compile
-      var innerElement = angular.element('<div class="tabs"></div>');
-      innerElement.append(element.contents());
-      element.append(innerElement);
-
-      return { pre: prelink };
-      function prelink($scope, $element, $attr, tabsCtrl) {
-        var deregisterInstance = $ionicTabsDelegate._registerInstance(
-          tabsCtrl, $attr.delegateHandle
-        );
-
-        $scope.$on('$destroy', deregisterInstance);
-
-        tabsCtrl.$scope = $scope;
-        tabsCtrl.$element = $element;
-        tabsCtrl.$tabsElement = angular.element($element[0].querySelector('.tabs'));
-
-        var el = $element[0];
-        $scope.$watch(function() { return el.className; }, function(value) {
-          var isTabsTop = value.indexOf('tabs-top') !== -1;
-          var isHidden = value.indexOf('tabs-item-hide') !== -1;
-          $scope.$hasTabs = !isTabsTop && !isHidden;
-          $scope.$hasTabsTop = isTabsTop && !isHidden;
-        });
-        $scope.$on('$destroy', function() {
-          $scope.$hasTabs = $scope.$hasTabsTop = null;
-        });
-      }
-    }
-  };
-}])
-
-.controller('ionicTab', ['$scope', '$ionicViewService', '$rootScope', '$element',
-function($scope, $ionicViewService, $rootScope, $element) {
-  this.$scope = $scope;
-}])
-
-/**
- * @ngdoc directive
- * @name ionTab
- * @module ionic
- * @restrict E
- * @parent ionic.directive:ionTabs
- *
- * @description
- * Contains a tab's content.  The content only exists while the given tab is selected.
- *
- * Each ionTab has its own view history.
- *
- * @usage
- * ```html
- * <ion-tab
- *   title="Tab!"
- *   icon="my-icon"
- *   href="#/tab/tab-link"
- *   on-select="onTabSelected()"
- *   on-deselect="onTabDeselected()">
- * </ion-tab>
- * ```
- * For a complete, working tab bar example, see the {@link ionic.directive:ionTabs} documentation.
- *
- * @param {string} title The title of the tab.
- * @param {string=} href The link that this tab will navigate to when tapped.
- * @param {string=} icon The icon of the tab. If given, this will become the default for icon-on and icon-off.
- * @param {string=} icon-on The icon of the tab while it is selected.
- * @param {string=} icon-off The icon of the tab while it is not selected.
- * @param {expression=} badge The badge to put on this tab (usually a number).
- * @param {expression=} badge-style The style of badge to put on this tab (eg tabs-positive).
- * @param {expression=} on-select Called when this tab is selected.
- * @param {expression=} on-deselect Called when this tab is deselected.
- * @param {expression=} ng-click By default, the tab will be selected on click. If ngClick is set, it will not.  You can explicitly switch tabs using {@link ionic.service:$ionicTabsDelegate#select $ionicTabsDelegate.select()}.
- */
-.directive('ionTab', ['$rootScope', '$animate', '$ionicBind', '$compile', '$ionicViewService',
-function($rootScope, $animate, $ionicBind, $compile, $ionicViewService) {
-
-  //Returns ' key="value"' if value exists
-  function attrStr(k,v) {
-    return angular.isDefined(v) ? ' ' + k + '="' + v + '"' : '';
-  }
-  return {
-    restrict: 'E',
-    require: ['^ionTabs', 'ionTab'],
     replace: true,
-    controller: 'ionicTab',
-    scope: true,
-    compile: function(element, attr) {
-      //Do we have a navView?
-      var navView = element[0].querySelector('ion-nav-view') ||
-        element[0].querySelector('data-ion-nav-view');
-      var navViewName = navView && navView.getAttribute('name');
-
-      var tabNavItem = angular.element(
-        element[0].querySelector('ion-tab-nav') ||
-        element[0].querySelector('data-ion-tab-nav')
-      ).remove();
-
-      //Remove the contents of the element so we can compile them later, if tab is selected
-      var tabContent = angular.element('<div class="pane">')
-        .append( element.contents().remove() );
-      return function link($scope, $element, $attr, ctrls) {
-        var childScope, childElement, tabNavElement;
-          tabsCtrl = ctrls[0],
-          tabCtrl = ctrls[1];
-
-        //Remove title attribute so browser-tooltip does not apear
-        $element[0].removeAttribute('title');
-
-        $ionicBind($scope, $attr, {
-          animate: '=',
-          onSelect: '&',
-          onDeselect: '&',
-          title: '@',
-          uiSref: '@',
-          href: '@',
-        });
-
-        tabsCtrl.add($scope);
-        $scope.$on('$destroy', function() {
-          tabsCtrl.remove($scope);
-          tabNavElement.isolateScope().$destroy();
-          tabNavElement.remove();
-        });
-
-        if (navViewName) {
-          $scope.navViewName = navViewName;
-          $scope.$on('$stateChangeSuccess', selectTabIfMatchesState);
-          selectTabIfMatchesState();
-        }
-
-        tabNavElement = angular.element(
-          '<ion-tab-nav' +
-          attrStr('ng-click', attr.ngClick) +
-          attrStr('title', attr.title) +
-          attrStr('icon', attr.icon) +
-          attrStr('icon-on', attr.iconOn) +
-          attrStr('icon-off', attr.iconOff) +
-          attrStr('badge', attr.badge) +
-          attrStr('badge-style', attr.badgeStyle) +
-          '></ion-tab-nav>'
-        );
-        tabNavElement.data('$ionTabsController', tabsCtrl);
-        tabNavElement.data('$ionTabController', tabCtrl);
-        tabsCtrl.$tabsElement.append($compile(tabNavElement)($scope));
-
-        $scope.$watch('$tabSelected', function(value) {
-          childScope && childScope.$destroy();
-          childScope = null;
-          childElement && $animate.leave(childElement);
-          childElement = null;
-          if (value) {
-            childScope = $scope.$new();
-            childElement = tabContent.clone();
-            $animate.enter(childElement, tabsCtrl.$element);
-            $compile(childElement)(childScope);
-          }
-        });
-
-        function selectTabIfMatchesState() {
-          // this tab's ui-view is the current one, go to it!
-          if ($ionicViewService.isCurrentStateNavView($scope.navViewName)) {
-            tabsCtrl.select($scope);
-          }
+    link: function($scope, $element){
+      var keyUp = function(e) {
+        if(e.which == 27) {
+          $scope.cancel();
+          $scope.$apply();
         }
       };
-    }
-  };
-}])
 
-.directive('ionTabNav', ['$ionicNgClick', function($ionicNgClick) {
-  return {
-    restrict: 'E',
-    replace: true,
-    require: ['^ionTabs', '^ionTab'],
-    template:
-    '<a ng-class="{\'tab-item-active\': isTabActive(), \'has-badge\':badge}" ' +
-      ' class="tab-item">' +
-      '<span class="badge {{badgeStyle}}" ng-if="badge">{{badge}}</span>' +
-      '<i class="icon {{getIconOn()}}" ng-if="getIconOn() && isTabActive()"></i>' +
-      '<i class="icon {{getIconOff()}}" ng-if="getIconOff() && !isTabActive()"></i>' +
-      '<span class="tab-title" ng-bind-html="title"></span>' +
-    '</a>',
-    scope: {
-      title: '@',
-      icon: '@',
-      iconOn: '@',
-      iconOff: '@',
-      badge: '=',
-      badgeStyle: '@'
+      var backdropClick = function(e) {
+        if(e.target == $element[0]) {
+          $scope.cancel();
+          $scope.$apply();
+        }
+      };
+      $scope.$on('$destroy', function() {
+        $element.remove();
+        $document.unbind('keyup', keyUp);
+      });
+
+      $document.bind('keyup', keyUp);
+      $element.bind('click', backdropClick);
     },
-    compile: function(element, attr, transclude) {
-      return function link($scope, $element, $attrs, ctrls) {
-        var tabsCtrl = ctrls[0],
-          tabCtrl = ctrls[1];
-
-        //Remove title attribute so browser-tooltip does not apear
-        $element[0].removeAttribute('title');
-
-        $scope.selectTab = function(e) {
-          e.preventDefault();
-          tabsCtrl.select(tabCtrl.$scope, true);
-        };
-        if (!$attrs.ngClick) {
-          $ionicNgClick($scope, $element, 'selectTab($event)');
-        }
-
-        $scope.getIconOn = function() {
-          return $scope.iconOn || $scope.icon;
-        };
-        $scope.getIconOff = function() {
-          return $scope.iconOff || $scope.icon;
-        };
-
-        $scope.isTabActive = function() {
-          return tabsCtrl.selectedTab() === tabCtrl.$scope;
-        };
-      };
-    }
+    template: '<div class="action-sheet-backdrop">' +
+                '<div class="action-sheet-wrapper">' +
+                  '<div class="action-sheet">' +
+                    '<div class="action-sheet-group">' +
+                      '<div class="action-sheet-title" ng-if="titleText" ng-bind-html="titleText"></div>' +
+                      '<button class="button" ng-click="buttonClicked($index)" ng-repeat="button in buttons" ng-bind-html="button.text"></button>' +
+                    '</div>' +
+                    '<div class="action-sheet-group" ng-if="destructiveText">' +
+                      '<button class="button destructive" ng-click="destructiveButtonClicked()" ng-bind-html="destructiveText"></button>' +
+                    '</div>' +
+                    '<div class="action-sheet-group" ng-if="cancelText">' +
+                      '<button class="button" ng-click="cancel()" ng-bind-html="cancelText"></button>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>' +
+              '</div>'
   };
 }]);
 
-(function(ionic) {
-'use strict';
-
-angular.module('ionic.ui.toggle', [])
 
 /**
  * @ngdoc directive
- * @name ionToggle
+ * @name ionCheckbox
  * @module ionic
  * @restrict E
- *
+ * @codepen hqcju
  * @description
- * An animated switch which binds a given model to a boolean.
+ * The checkbox is no different than the HTML checkbox input, except it's styled differently.
  *
- * Allows dragging of the switch's nub.
+ * The checkbox behaves like any [AngularJS checkbox](http://docs.angularjs.org/api/ng/input/input[checkbox]).
  *
- * Behaves like any [AngularJS checkbox](http://docs.angularjs.org/api/ng/input/input[checkbox]) otherwise.
- *
+ * @usage
+ * ```html
+ * <ion-checkbox ng-model="isChecked">Checkbox Label</ion-checkbox>
+ * ```
  */
-.directive('ionToggle', ['$ionicGesture', '$timeout', function($ionicGesture, $timeout) {
-
+IonicModule
+.directive('ionCheckbox', function() {
   return {
     restrict: 'E',
     replace: true,
@@ -37085,204 +41443,1566 @@ angular.module('ionic.ui.toggle', [])
       ngModel: '=?',
       ngValue: '=?',
       ngChecked: '=?',
-      ngChange: '&',
-      ngDisabled: '=?'
+      ngDisabled: '=?',
+      ngChange: '&'
     },
     transclude: true,
-    template: '<div class="item item-toggle disable-pointer-events">' +
-                '<div ng-transclude></div>' +
-                '<label class="toggle enable-pointer-events">' +
-                  '<input type="checkbox" ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()" ng-disabled="ngDisabled">' +
-                  '<div class="track disable-pointer-events">' +
-                    '<div class="handle"></div>' +
-                  '</div>' +
-                '</label>' +
-              '</div>',
+
+    template: '<label class="item item-checkbox">' +
+                '<div class="checkbox checkbox-input-hidden disable-pointer-events">' +
+                  '<input type="checkbox" ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()">' +
+                  '<i class="checkbox-icon"></i>' +
+                '</div>' +
+                '<div class="item-content disable-pointer-events" ng-transclude></div>' +
+              '</label>',
 
     compile: function(element, attr) {
       var input = element.find('input');
       if(attr.name) input.attr('name', attr.name);
-      if(attr.ngChecked) input.attr('ng-checked', 'ngChecked');
+      if(attr.ngChecked) input.attr('ng-checked', attr.ngChecked);
+      if(attr.ngDisabled) input.attr('ng-disabled', attr.ngDisabled);
       if(attr.ngTrueValue) input.attr('ng-true-value', attr.ngTrueValue);
       if(attr.ngFalseValue) input.attr('ng-false-value', attr.ngFalseValue);
-
-      return function($scope, $element, $attr) {
-         var el, checkbox, track, handle;
-
-         el = $element[0].getElementsByTagName('label')[0];
-         checkbox = el.children[0];
-         track = el.children[1];
-         handle = track.children[0];
-         
-         var ngModelController = angular.element(checkbox).controller('ngModel');
-
-         $scope.toggle = new ionic.views.Toggle({
-           el: el,
-           track: track,
-           checkbox: checkbox,
-           handle: handle,
-           onChange: function() {
-             if(checkbox.checked) {
-               ngModelController.$setViewValue(true);
-             } else {
-               ngModelController.$setViewValue(false);
-             }
-             $scope.$apply();
-           }
-         });
-
-         $scope.$on('$destroy', function() {
-           $scope.toggle.destroy();
-         });
-      };
     }
 
   };
-}]);
-
-})(window.ionic);
-
-
-// Similar to Angular's ngTouch, however it uses Ionic's tap detection
-// and click simulation. ngClick
-
-(function(angular, ionic) {'use strict';
-
-angular.module('ionic.ui.touch', [])
-
-  .config(['$provide', function($provide) {
-    $provide.decorator('ngClickDirective', ['$delegate', function($delegate) {
-      // drop the default ngClick directive
-      $delegate.shift();
-      return $delegate;
-    }]);
-  }])
-
-  /**
-   * @private
-   */
-  .factory('$ionicNgClick', ['$parse', function($parse) {
-    function onTap(e) {
-      // wire this up to Ionic's tap/click simulation
-      ionic.tapElement(e.target, e);
-    }
-    return function(scope, element, clickExpr) {
-      var clickHandler = $parse(clickExpr);
-
-      element.on('click', function(event) {
-        scope.$apply(function() {
-          clickHandler(scope, {$event: (event)});
-        });
-      });
-
-      ionic.on("release", onTap, element[0]);
-
-      // Hack for iOS Safari's benefit. It goes searching for onclick handlers and is liable to click
-      // something else nearby.
-      element.onclick = function(event) { };
-
-      scope.$on('$destroy', function () {
-        ionic.off("release", onTap, element[0]);
-      });
-    };
-  }])
-
-  .directive('ngClick', ['$ionicNgClick', function($ionicNgClick) {
-    return function(scope, element, attr) {
-      $ionicNgClick(scope, element, attr.ngClick);
-    };
-  }])
-
-  .directive('ionStopEvent', function () {
-    function stopEvent(e) {
-      e.stopPropagation();
-    }
-    return {
-      restrict: 'A',
-      link: function (scope, element, attr) {
-        element.bind(attr.ionStopEvent, stopEvent);
-      }
-    };
-  });
-
-
-})(window.angular, window.ionic);
-
-(function() {
-'use strict';
-
-angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gesture', 'ngSanitize'])
+});
 
 /**
  * @ngdoc directive
- * @name ionView
+ * @module ionic
+ * @name collectionRepeat
+ * @restrict A
+ * @codepen mFygh
+ * @description
+ * `collection-repeat` is a directive that allows you to render lists with
+ * thousands of items in them, and experience little to no performance penalty.
+ *
+ * Demo:
+ *
+ * The directive renders onto the screen only the items that should be currently visible.
+ * So if you have 1,000 items in your list but only ten fit on your screen,
+ * collection-repeat will only render into the DOM the ten that are in the current
+ * scroll position.
+ *
+ * Here are a few things to keep in mind while using collection-repeat:
+ *
+ * 1. The data supplied to collection-repeat must be an array.
+ * 2. You must explicitly tell the directive what size your items will be in the DOM, using directive attributes. Pixel amounts or percentages are allowed (see below).
+ * 3. The elements rendered will be absolutely positioned: be sure to let your CSS work with
+ * this (see below).
+ * 4. Keep the HTML of your repeated elements as simple as possible. As the user scrolls down,
+ * elements will be lazily compiled. Resultingly, the more complicated your elements, the more
+ * likely it is that the on-demand compilation will cause some jerkiness in the user's scrolling.
+ * 5. The more elements you render on the screen per row, the more likelihood for scrolling to
+ * slow down. It is recommended to keep grids of collection-repeat list elements at 3-wide or less.
+ * For example, if you have a gallery of images just set their width to 33%.
+ * 6. Each collection-repeat list will take up all of its parent scrollView's space.
+ * If you wish to have multiple lists on one page, put each list within its own
+ * {@link ionic.directive:ionScroll ionScroll} container.
+ *
+ *
+ * @usage
+ *
+ * #### Basic Usage (single rows of items)
+ *
+ * Notice two things here: we use ng-style to set the height of the item to match
+ * what the repeater thinks our item height is.  Additionally, we add a css rule
+ * to make our item stretch to fit the full screen (since it will be absolutely
+ * positioned).
+ *
+ * ```html
+ * <ion-content ng-controller="ContentCtrl">
+ *   <div class="list">
+ *     <div class="item my-item"
+ *       collection-repeat="item in items"
+ *       collection-item-width="'100%'"
+ *       collection-item-height="getItemHeight(item, $index)"
+ *       ng-style="{height: getItemHeight(item, $index)}">
+ *       {% raw %}{{item}}{% endraw %}
+ *     </div>
+ *   </div>
+ * </div>
+ * ```
+ * ```js
+ * function ContentCtrl($scope) {
+ *   $scope.items = [];
+ *   for (var i = 0; i < 1000; i++) {
+ *     $scope.items.push('Item ' + i);
+ *   }
+ *
+ *   $scope.getItemHeight = function(item, index) {
+ *     //Make evenly indexed items be 10px taller, for the sake of example
+ *     return (index % 2) === 0 ? 50 : 60;
+ *   };
+ * }
+ * ```
+ * ```css
+ * .my-item {
+ *   left: 0;
+ *   right: 0;
+ * }
+ * ```
+ *
+ * #### Grid Usage (three items per row)
+ *
+ * ```html
+ * <ion-content>
+ *   <div class="item item-avatar my-image-item"
+ *     collection-repeat="image in images"
+ *     collection-item-width="'33%'"
+ *     collection-item-height="'33%'">
+ *     <img ng-src="{{image.src}}">
+ *   </div>
+ * </ion-content>
+ * ```
+ * ```css
+ * .my-image-item {
+ *   height: 33%;
+ *   width: 33%;
+ * }
+ * ```
+ *
+ * @param {expression} collection-repeat The expression indicating how to enumerate a collection. These
+ *   formats are currently supported:
+ *
+ *   * `variable in expression` – where variable is the user defined loop variable and `expression`
+ *     is a scope expression giving the collection to enumerate.
+ *
+ *     For example: `album in artist.albums`.
+ *
+ *   * `variable in expression track by tracking_expression` – You can also provide an optional tracking function
+ *     which can be used to associate the objects in the collection with the DOM elements. If no tracking function
+ *     is specified the collection-repeat associates elements by identity in the collection. It is an error to have
+ *     more than one tracking function to resolve to the same key. (This would mean that two distinct objects are
+ *     mapped to the same DOM element, which is not possible.)  Filters should be applied to the expression,
+ *     before specifying a tracking expression.
+ *
+ *     For example: `item in items` is equivalent to `item in items track by $id(item)'. This implies that the DOM elements
+ *     will be associated by item identity in the array.
+ *
+ *     For example: `item in items track by $id(item)`. A built in `$id()` function can be used to assign a unique
+ *     `$$hashKey` property to each item in the array. This property is then used as a key to associated DOM elements
+ *     with the corresponding item in the array by identity. Moving the same object in array would move the DOM
+ *     element in the same way in the DOM.
+ *
+ *     For example: `item in items track by item.id` is a typical pattern when the items come from the database. In this
+ *     case the object identity does not matter. Two objects are considered equivalent as long as their `id`
+ *     property is same.
+ *
+ *     For example: `item in items | filter:searchText track by item.id` is a pattern that might be used to apply a filter
+ *     to items in conjunction with a tracking expression.
+ *
+ * @param {expression} collection-item-width The width of the repeated element.  Can be a number (in pixels) or a percentage.
+ * @param {expression} collection-item-height The height of the repeated element.  Can be a number (in pixels), or a percentage.
+ *
+ */
+var COLLECTION_REPEAT_SCROLLVIEW_XY_ERROR = "Cannot create a collection-repeat within a scrollView that is scrollable on both x and y axis.  Choose either x direction or y direction.";
+var COLLECTION_REPEAT_ATTR_HEIGHT_ERROR = "collection-repeat expected attribute collection-item-height to be a an expression that returns a number (in pixels) or percentage.";
+var COLLECTION_REPEAT_ATTR_WIDTH_ERROR = "collection-repeat expected attribute collection-item-width to be a an expression that returns a number (in pixels) or percentage.";
+var COLLECTION_REPEAT_ATTR_REPEAT_ERROR = "collection-repeat expected expression in form of '_item_ in _collection_[ track by _id_]' but got '%'";
+
+IonicModule
+.directive('collectionRepeat', [
+  '$collectionRepeatManager',
+  '$collectionDataSource',
+  '$parse',
+function($collectionRepeatManager, $collectionDataSource, $parse) {
+  return {
+    priority: 1000,
+    transclude: 'element',
+    terminal: true,
+    $$tlb: true,
+    require: '^$ionicScroll',
+    link: function($scope, $element, $attr, scrollCtrl, $transclude) {
+      var scrollView = scrollCtrl.scrollView;
+      if (scrollView.options.scrollingX && scrollView.options.scrollingY) {
+        throw new Error(COLLECTION_REPEAT_SCROLLVIEW_XY_ERROR);
+      }
+
+      var isVertical = !!scrollView.options.scrollingY;
+      if (isVertical && !$attr.collectionItemHeight) {
+        throw new Error(COLLECTION_REPEAT_ATTR_HEIGHT_ERROR);
+      } else if (!isVertical && !$attr.collectionItemWidth) {
+        throw new Error(COLLECTION_REPEAT_ATTR_WIDTH_ERROR);
+      }
+      $attr.collectionItemHeight = $attr.collectionItemHeight || '"100%"';
+      $attr.collectionItemWidth = $attr.collectionItemWidth || '"100%"';
+
+      var heightParsed = $attr.collectionItemHeight ?
+        $parse($attr.collectionItemHeight) :
+        function() { return scrollView.__clientHeight; };
+      var widthParsed = $attr.collectionItemWidth ?
+        $parse($attr.collectionItemWidth) :
+        function() { return scrollView.__clientWidth; };
+
+      var heightGetter = function(scope, locals) {
+        var result = heightParsed(scope, locals);
+        if (angular.isString(result) && result.indexOf('%') > -1) {
+          return Math.floor(parseInt(result, 10) / 100 * scrollView.__clientHeight);
+        }
+        return result;
+      };
+      var widthGetter = function(scope, locals) {
+        var result = widthParsed(scope, locals);
+        if (angular.isString(result) && result.indexOf('%') > -1) {
+          return Math.floor(parseInt(result, 10) / 100 * scrollView.__clientWidth);
+        }
+        return result;
+      };
+
+      var match = $attr.collectionRepeat.match(/^\s*([\s\S]+?)\s+in\s+([\s\S]+?)(?:\s+track\s+by\s+([\s\S]+?))?\s*$/);
+      if (!match) {
+        throw new Error(COLLECTION_REPEAT_ATTR_REPEAT_ERROR
+                        .replace('%', $attr.collectionRepeat));
+      }
+      var keyExpr = match[1];
+      var listExpr = match[2];
+      var trackByExpr = match[3];
+
+      var dataSource = new $collectionDataSource({
+        scope: $scope,
+        transcludeFn: $transclude,
+        transcludeParent: $element.parent(),
+        keyExpr: keyExpr,
+        listExpr: listExpr,
+        trackByExpr: trackByExpr,
+        heightGetter: heightGetter,
+        widthGetter: widthGetter
+      });
+      var collectionRepeatManager = new $collectionRepeatManager({
+        dataSource: dataSource,
+        element: scrollCtrl.$element,
+        scrollView: scrollCtrl.scrollView,
+      });
+
+      $scope.$watchCollection(listExpr, function(value) {
+        if (value && !angular.isArray(value)) {
+          throw new Error("collection-repeat expects an array to repeat over, but instead got '" + typeof value + "'.");
+        }
+        rerender(value);
+      });
+
+      function rerender(value) {
+        scrollView.resize();
+        dataSource.setData(value);
+        collectionRepeatManager.resize();
+      }
+      function onWindowResize() {
+        rerender($scope.$eval(listExpr));
+      }
+
+      ionic.on('resize', onWindowResize, window);
+
+      $scope.$on('$destroy', function() {
+        collectionRepeatManager.destroy();
+        dataSource.destroy();
+        ionic.off('resize', onWindowResize, window);
+      });
+    }
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name ionContent
+ * @module ionic
+ * @delegate ionic.service:$ionicScrollDelegate
+ * @restrict E
+ *
+ * @description
+ * The ionContent directive provides an easy to use content area that can be configured
+ * to use Ionic's custom Scroll View, or the built in overflow scrolling of the browser.
+ *
+ * While we recommend using the custom Scroll features in Ionic in most cases, sometimes
+ * (for performance reasons) only the browser's native overflow scrolling will suffice,
+ * and so we've made it easy to toggle between the Ionic scroll implementation and
+ * overflow scrolling.
+ *
+ * You can implement pull-to-refresh with the {@link ionic.directive:ionRefresher}
+ * directive, and infinite scrolling with the {@link ionic.directive:ionInfiniteScroll}
+ * directive.
+ *
+ * @param {string=} delegate-handle The handle used to identify this scrollView
+ * with {@link ionic.service:$ionicScrollDelegate}.
+ * @param {boolean=} padding Whether to add padding to the content.
+ * of the content.  Defaults to true on iOS, false on Android.
+ * @param {boolean=} scroll Whether to allow scrolling of content.  Defaults to true.
+ * @param {boolean=} overflow-scroll Whether to use overflow-scrolling instead of
+ * Ionic scroll.
+ * @param {boolean=} has-bouncing Whether to allow scrolling to bounce past the edges
+ * of the content.  Defaults to true on iOS, false on Android.
+ * @param {expression=} on-scroll Expression to evaluate when the content is scrolled.
+ * @param {expression=} on-scroll-complete Expression to evaluate when a scroll action completes.
+ */
+IonicModule
+.directive('ionContent', [
+  '$timeout',
+  '$controller',
+  '$ionicBind',
+function($timeout, $controller, $ionicBind) {
+  return {
+    restrict: 'E',
+    require: '^?ionNavView',
+    scope: true,
+    priority: 800,
+    compile: function(element, attr) {
+      var innerElement;
+
+      element.addClass('scroll-content');
+
+      if (attr.scroll != 'false') {
+        //We cannot use normal transclude here because it breaks element.data()
+        //inheritance on compile
+        innerElement = angular.element('<div class="scroll"></div>');
+        innerElement.append(element.contents());
+        element.append(innerElement);
+      }
+
+      return { pre: prelink };
+      function prelink($scope, $element, $attr, navViewCtrl) {
+        var parentScope = $scope.$parent;
+        $scope.$watch(function() {
+          return (parentScope.$hasHeader ? ' has-header' : '')  +
+            (parentScope.$hasSubheader ? ' has-subheader' : '') +
+            (parentScope.$hasFooter ? ' has-footer' : '') +
+            (parentScope.$hasSubfooter ? ' has-subfooter' : '') +
+            (parentScope.$hasTabs ? ' has-tabs' : '') +
+            (parentScope.$hasTabsTop ? ' has-tabs-top' : '');
+        }, function(className, oldClassName) {
+          $element.removeClass(oldClassName);
+          $element.addClass(className);
+        });
+
+        //Only this ionContent should use these variables from parent scopes
+        $scope.$hasHeader = $scope.$hasSubheader =
+          $scope.$hasFooter = $scope.$hasSubfooter =
+          $scope.$hasTabs = $scope.$hasTabsTop =
+          false;
+
+        $ionicBind($scope, $attr, {
+          $onScroll: '&onScroll',
+          $onScrollComplete: '&onScrollComplete',
+          hasBouncing: '@',
+          scroll: '@',
+          padding: '@',
+          hasScrollX: '@',
+          hasScrollY: '@',
+          scrollbarX: '@',
+          scrollbarY: '@',
+          startX: '@',
+          startY: '@',
+          scrollEventInterval: '@'
+        });
+
+        if (angular.isDefined($attr.padding)) {
+          $scope.$watch($attr.padding, function(newVal) {
+              (innerElement || $element).toggleClass('padding', !!newVal);
+          });
+        }
+
+        if ($scope.scroll === "false") {
+          //do nothing
+        } else if(attr.overflowScroll === "true") {
+          $element.addClass('overflow-scroll');
+        } else {
+          $controller('$ionicScroll', {
+            $scope: $scope,
+            scrollViewOptions: {
+              el: $element[0],
+              delegateHandle: attr.delegateHandle,
+              bouncing: $scope.$eval($scope.hasBouncing),
+              startX: $scope.$eval($scope.startX) || 0,
+              startY: $scope.$eval($scope.startY) || 0,
+              scrollbarX: $scope.$eval($scope.scrollbarX) !== false,
+              scrollbarY: $scope.$eval($scope.scrollbarY) !== false,
+              scrollingX: $scope.$eval($scope.hasScrollX) === true,
+              scrollingY: $scope.$eval($scope.hasScrollY) !== false,
+              scrollEventInterval: parseInt($scope.scrollEventInterval, 10) || 10,
+              scrollingComplete: function() {
+                $scope.$onScrollComplete({
+                  scrollTop: this.__scrollTop,
+                  scrollLeft: this.__scrollLeft
+                });
+              }
+            }
+          });
+        }
+
+      }
+    }
+  };
+}]);
+
+
+IonicModule
+.directive('ionNavBar', tapScrollToTopDirective())
+.directive('ionHeaderBar', tapScrollToTopDirective())
+
+/**
+ * @ngdoc directive
+ * @name ionHeaderBar
+ * @module ionic
+ * @restrict E
+ *
+ * @description
+ * Adds a fixed header bar above some content.
+ *
+ * Can also be a subheader (lower down) if the 'bar-subheader' class is applied.
+ * See [the header CSS docs](/docs/components/#subheader).
+ *
+ * @param {string=} align-title Where to align the title.
+ * Avaialble: 'left', 'right', or 'center'.  Defaults to 'center'.
+ *
+ * @usage
+ * ```html
+ * <ion-header-bar align-title="left" class="bar-positive">
+ *   <div class="buttons">
+ *     <button class="button" ng-click="doSomething()">Left Button</button>
+ *   </div>
+ *   <h1 class="title">Title!</h1>
+ *   <div class="buttons">
+ *     <button class="button">Right Button</button>
+ *   </div>
+ * </ion-header-bar>
+ * <ion-content>
+ *   Some content!
+ * </ion-content>
+ * ```
+ */
+.directive('ionHeaderBar', headerFooterBarDirective(true))
+
+/**
+ * @ngdoc directive
+ * @name ionFooterBar
+ * @module ionic
+ * @restrict E
+ *
+ * @description
+ * Adds a fixed footer bar below some content.
+ *
+ * Can also be a subfooter (higher up) if the 'bar-subfooter' class is applied.
+ * See [the footer CSS docs](/docs/components/#footer).
+ *
+ * @param {string=} align-title Where to align the title.
+ * Avaialble: 'left', 'right', or 'center'.  Defaults to 'center'.
+ *
+ * @usage
+ * ```html
+ * <ion-content>
+ *   Some content!
+ * </ion-content>
+ * <ion-footer-bar align-title="left" class="bar-assertive">
+ *   <div class="buttons">
+ *     <button class="button">Left Button</button>
+ *   </div>
+ *   <h1 class="title">Title!</h1>
+ *   <div class="buttons" ng-click="doSomething()">
+ *     <button class="button">Right Button</button>
+ *   </div>
+ * </ion-footer-bar>
+ * ```
+ */
+.directive('ionFooterBar', headerFooterBarDirective(false));
+
+function tapScrollToTopDirective() {
+  return ['$ionicScrollDelegate', function($ionicScrollDelegate) {
+    return {
+      restrict: 'E',
+      link: function($scope, $element, $attr) {
+        ionic.on('tap', onTap, $element[0]);
+        $scope.$on('$destroy', function() {
+          ionic.off('tap', onTap, $element[0]);
+        });
+
+        function onTap(e) {
+          var depth = 3;
+          var current = e.target;
+          //Don't scroll to top in certain cases
+          while (depth-- && current) {
+            if (current.classList.contains('button') ||
+                current.tagName.match(/input|textarea|select/i) ||
+                current.isContentEditable) {
+              return;
+            }
+            current = current.parentNode;
+          }
+          var touch = e.gesture && e.gesture.touches[0] || e.detail.touches[0];
+          var bounds = $element[0].getBoundingClientRect();
+          if (ionic.DomUtil.rectContains(
+            touch.pageX, touch.pageY,
+            bounds.left, bounds.top - 20,
+            bounds.left + bounds.width, bounds.top + bounds.height
+          )) {
+            $ionicScrollDelegate.scrollTop(true);
+          }
+        }
+      }
+    };
+  }];
+}
+
+function headerFooterBarDirective(isHeader) {
+  return [function() {
+    return {
+      restrict: 'E',
+      compile: function($element, $attr) {
+        $element.addClass(isHeader ? 'bar bar-header' : 'bar bar-footer');
+
+        return { pre: prelink };
+        function prelink($scope, $element, $attr) {
+          var hb = new ionic.views.HeaderBar({
+            el: $element[0],
+            alignTitle: $attr.alignTitle || 'center'
+          });
+
+          var el = $element[0];
+
+          if (isHeader) {
+            $scope.$watch(function() { return el.className; }, function(value) {
+              var isSubheader = value.indexOf('bar-subheader') !== -1;
+              $scope.$hasHeader = !isSubheader;
+              $scope.$hasSubheader = isSubheader;
+            });
+            $scope.$on('$destroy', function() {
+              delete $scope.$hasHeader;
+              delete $scope.$hasSubheader;
+            });
+          } else {
+            $scope.$watch(function() { return el.className; }, function(value) {
+              var isSubfooter = value.indexOf('bar-subfooter') !== -1;
+              $scope.$hasFooter = !isSubfooter;
+              $scope.$hasSubfooter = isSubfooter;
+            });
+            $scope.$on('$destroy', function() {
+              delete $scope.$hasFooter;
+              delete $scope.$hasSubfooter;
+            });
+            $scope.$watch('$hasTabs', function(val) {
+              $element.toggleClass('has-tabs', !!val);
+            });
+          }
+        }
+      }
+    };
+  }];
+}
+
+/**
+ * @ngdoc directive
+ * @name ionInfiniteScroll
+ * @module ionic
+ * @parent ionic.directive:ionContent, ionic.directive:ionScroll
+ * @restrict E
+ *
+ * @description
+ * The ionInfiniteScroll directive allows you to call a function whenever
+ * the user gets to the bottom of the page or near the bottom of the page.
+ *
+ * The expression you pass in for `on-infinite` is called when the user scrolls
+ * greater than `distance` away from the bottom of the content.
+ *
+ * @param {expression} on-infinite What to call when the scroller reaches the
+ * bottom.
+ * @param {string=} distance The distance from the bottom that the scroll must
+ * reach to trigger the on-infinite expression. Default: 1%.
+ * @param {string=} icon The icon to show while loading. Default: 'ion-loading-d'.
+ *
+ * @usage
+ * ```html
+ * <ion-content ng-controller="MyController">
+ *   <ion-infinite-scroll
+ *     on-infinite="loadMore()"
+ *     distance="1%">
+ *   </ion-infinite-scroll>
+ * </ion-content>
+ * ```
+ * ```js
+ * function MyController($scope, $http) {
+ *   $scope.items = [];
+ *   $scope.loadMore = function() {
+ *     $http.get('/more-items').success(function(items) {
+ *       useItems(items);
+ *       $scope.$broadcast('scroll.infiniteScrollComplete');
+ *     });
+ *   };
+ *
+ *   $scope.$on('stateChangeSuccess', function() {
+ *     $scope.loadMore();
+ *   });
+ * }
+ * ```
+ *
+ * An easy to way to stop infinite scroll once there is no more data to load
+ * is to use angular's `ng-if` directive:
+ *
+ * ```html
+ * <ion-infinite-scroll
+ *   ng-if="moreDataCanBeLoaded()"
+ *   icon="ion-loading-c"
+ *   on-infinite="loadMoreData()">
+ * </ion-infinite-scroll>
+ * ```
+ */
+IonicModule
+.directive('ionInfiniteScroll', ['$timeout', function($timeout) {
+  function calculateMaxValue(distance, maximum, isPercent) {
+    return isPercent ?
+      maximum * (1 - parseInt(distance,10) / 100) :
+      maximum - parseInt(distance, 10);
+  }
+  return {
+    restrict: 'E',
+    require: ['^$ionicScroll', 'ionInfiniteScroll'],
+    template:
+      '<div class="scroll-infinite">' +
+        '<div class="scroll-infinite-content">' +
+          '<i class="icon {{icon()}} icon-refreshing"></i>' +
+        '</div>' +
+      '</div>',
+    scope: true,
+    controller: ['$scope', '$attrs', function($scope, $attrs) {
+      this.isLoading = false;
+      this.scrollView = null; //given by link function
+      this.getMaxScroll = function() {
+        var distance = ($attrs.distance || '1%').trim();
+        var isPercent = distance.indexOf('%') !== -1;
+        var maxValues = this.scrollView.getScrollMax();
+        return {
+          left: this.scrollView.options.scrollingX ?
+            calculateMaxValue(distance, maxValues.left, isPercent) :
+            -1,
+          top: this.scrollView.options.scrollingY ?
+            calculateMaxValue(distance, maxValues.top, isPercent) :
+            -1
+        };
+      };
+    }],
+    link: function($scope, $element, $attrs, ctrls) {
+      var scrollCtrl = ctrls[0];
+      var infiniteScrollCtrl = ctrls[1];
+      var scrollView = infiniteScrollCtrl.scrollView = scrollCtrl.scrollView;
+
+      $scope.icon = function() {
+        return angular.isDefined($attrs.icon) ? $attrs.icon : 'ion-loading-d';
+      };
+
+      var onInfinite = function() {
+        $element[0].classList.add('active');
+        infiniteScrollCtrl.isLoading = true;
+        $scope.$parent && $scope.$parent.$apply($attrs.onInfinite || '');
+      }
+
+      var finishInfiniteScroll = function() {
+        $element[0].classList.remove('active');
+        $timeout(function() {
+          scrollView.resize();
+        }, 0, false);
+        infiniteScrollCtrl.isLoading = false;
+      };
+
+      $scope.$on('scroll.infiniteScrollComplete', function() {
+        finishInfiniteScroll();
+      });
+
+      $scope.$on('$destroy', function() {
+        scrollCtrl.$element.off('scroll', checkBounds);
+      });
+
+      var checkBounds = ionic.animationFrameThrottle(checkInfiniteBounds);
+
+      //Check bounds on start, after scrollView is fully rendered
+      setTimeout(checkBounds);
+      scrollCtrl.$element.on('scroll', checkBounds);
+
+      function checkInfiniteBounds() {
+        if (infiniteScrollCtrl.isLoading) return;
+
+        var scrollValues = scrollView.getValues();
+        var maxScroll = infiniteScrollCtrl.getMaxScroll();
+
+        if ((maxScroll.left !== -1 && scrollValues.left >= maxScroll.left) ||
+            (maxScroll.top !== -1 && scrollValues.top >= maxScroll.top)) {
+          onInfinite();
+        }
+      }
+    }
+  };
+}]);
+
+var ITEM_TPL_CONTENT_ANCHOR =
+  '<a class="item-content" ng-href="{{$href()}}"></a>';
+var ITEM_TPL_CONTENT =
+  '<div class="item-content"></div>';
+/**
+* @ngdoc directive
+* @name ionItem
+* @parent ionic.directive:ionList
+* @module ionic
+* @restrict E
+* Creates a list-item that can easily be swiped,
+* deleted, reordered, edited, and more.
+*
+* See {@link ionic.directive:ionList} for a complete example & explanation.
+*
+* Can be assigned any item class name. See the
+* [list CSS documentation](/docs/components/#list).
+*
+* @usage
+*
+* ```html
+* <ion-list>
+*   <ion-item>Hello!</ion-item>
+* </ion-list>
+* ```
+*/
+IonicModule
+.directive('ionItem', [
+  '$animate',
+  '$compile',
+function($animate, $compile) {
+  return {
+    restrict: 'E',
+    controller: ['$scope', '$element', function($scope, $element) {
+      this.$scope = $scope;
+      this.$element = $element;
+    }],
+    scope: true,
+    compile: function($element, $attrs) {
+      var isAnchor = angular.isDefined($attrs.href) || angular.isDefined($attrs.ngHref);
+      var isComplexItem = isAnchor ||
+        //Lame way of testing, but we have to know at compile what to do with the element
+        /ion-(delete|option|reorder)-button/i.test($element.html());
+
+        if (isComplexItem) {
+          var innerElement = angular.element(isAnchor ? ITEM_TPL_CONTENT_ANCHOR : ITEM_TPL_CONTENT);
+          innerElement.append($element.contents());
+
+          $element.append(innerElement);
+          $element.addClass('item item-complex');
+        } else {
+          $element.addClass('item');
+        }
+
+        return function link($scope, $element, $attrs) {
+          $scope.$href = function() {
+            return $attrs.href || $attrs.ngHref;
+          };
+        };
+    }
+  };
+}]);
+
+
+var ITEM_TPL_DELETE_BUTTON =
+  '<div class="item-left-edit item-delete ng-hide">' +
+  '</div>';
+/**
+* @ngdoc directive
+* @name ionDeleteButton
+* @parent ionic.directive:ionItem
+* @module ionic
+* @restrict E
+* Creates a delete button inside a list item, that is visible when the
+* {@link ionic.directive:ionList ionList parent's} `show-delete` evaluates to true or
+* `$ionicListDelegate.showDelete(true)` is called.
+*
+* Takes any ionicon as a class.
+*
+* See {@link ionic.directive:ionList} for a complete example & explanation.
+*
+* @usage
+*
+* ```html
+* <ion-list show-delete="shouldShowDelete">
+*   <ion-item>
+*     <ion-delete-button class="ion-minus-circled"></ion-delete-button>
+*     Hello, list item!
+*   </ion-item>
+* </ion-list>
+* <ion-toggle ng-model="shouldShowDelete">
+*   Show Delete?
+* </ion-toggle>
+* ```
+*/
+IonicModule
+.directive('ionDeleteButton', ['$animate', function($animate) {
+  return {
+    restrict: 'E',
+    require: ['^ionItem', '^ionList'],
+    //Run before anything else, so we can move it before other directives process
+    //its location (eg ngIf relies on the location of the directive in the dom)
+    priority: Number.MAX_VALUE,
+    compile: function($element, $attr) {
+      //Add the classes we need during the compile phase, so that they stay
+      //even if something else like ngIf removes the element and re-addss it
+      $attr.$set('class', ($attr['class'] || '') + ' button icon button-icon', true);
+      return function($scope, $element, $attr, ctrls) {
+        var itemCtrl = ctrls[0];
+        var listCtrl = ctrls[1];
+        var container = angular.element(ITEM_TPL_DELETE_BUTTON);
+        container.append($element);
+        itemCtrl.$element.append(container).addClass('item-left-editable');
+
+        if (listCtrl.showDelete()) {
+          $animate.removeClass(container, 'ng-hide');
+        }
+      };
+    }
+  };
+}]);
+
+var ITEM_TPL_OPTION_BUTTONS =
+  '<div class="item-options invisible">' +
+  '</div>';
+/**
+* @ngdoc directive
+* @name ionOptionButton
+* @parent ionic.directive:ionItem
+* @module ionic
+* @restrict E
+* Creates an option button inside a list item, that is visible when the item is swiped
+* to the left by the user.  Swiped open option buttons can be hidden with
+* {@link ionic.directive:$ionicListDelegate#closeOptionButtons $ionicListDelegate#closeOptionButtons}.
+*
+* Can be assigned any button class.
+*
+* See {@link ionic.directive:ionList} for a complete example & explanation.
+*
+* @usage
+*
+* ```html
+* <ion-list>
+*   <ion-item>
+*     I love kittens!
+*     <ion-option-button class="button-positive">Share</ion-option-button>
+*     <ion-option-button class="button-assertive">Edit</ion-option-button>
+*   </ion-item>
+* </ion-list>
+* ```
+*/
+IonicModule
+.directive('ionOptionButton', ['$compile', function($compile) {
+return {
+  restrict: 'E',
+  require: '^ionItem',
+  priority: Number.MAX_VALUE,
+  compile: function($element, $attr) {
+    $attr.$set('class', ($attr['class'] || '') + ' button', true);
+    return function($scope, $element, $attr, itemCtrl) {
+      if (!itemCtrl.optionsContainer) {
+        itemCtrl.optionsContainer = angular.element(ITEM_TPL_OPTION_BUTTONS);
+        itemCtrl.$element.append(itemCtrl.optionsContainer);
+      }
+      itemCtrl.optionsContainer.append($element);
+
+      $element.on('click', eventStopPropagation);
+    };
+  }
+};
+}]);
+
+var ITEM_TPL_REORDER_BUTTON =
+  '<div data-prevent-scroll="true" class="item-right-edit item-reorder ng-hide">' +
+  '</div>';
+
+/**
+* @ngdoc directive
+* @name ionReorderButton
+* @parent ionic.directive:ionItem
+* @module ionic
+* @restrict E
+* Creates a reorder button inside a list item, that is visible when the
+* {@link ionic.directive:ionList ionList parent's} `show-reorder` evaluates to true or
+* `$ionicListDelegate.showReorder(true)` is called.
+*
+* Can be dragged to reorder items in the list. Takes any ionicon class.
+*
+* When an item reorder is complete, the `on-reorder` callback given in the attribute is called
+* (see below).
+*
+* See {@link ionic.directive:ionList} for a complete example.
+*
+* @usage
+*
+* ```html
+* <ion-list ng-controller="MyCtrl">
+*   <ion-item ng-repeat="item in items">
+*     Item {{$index}}
+*     <ion-reorder-button class="ion-navicon"
+*                         on-reorder="moveItem(item, $fromIndex, $toIndex)">
+*     </ion-reorder>
+*   </ion-item>
+* </ion-list>
+* ```
+* ```js
+* function MyCtrl($scope) {
+*   $scope.items = [1, 2, 3, 4];
+*   $scope.moveItem = function(item, fromIndex, toIndex) {
+*     //Move the item in the array
+*     $scope.items.splice(fromIndex, 1);
+*     $scope.items.splice(toIndex, 0, item);
+*   };
+* }
+* ```
+*
+* @param {expression=} on-reorder Expression to call when an item is reordered.
+* Parameters given: $fromIndex, $toIndex.
+*/
+IonicModule
+.directive('ionReorderButton', ['$animate', function($animate) {
+  return {
+    restrict: 'E',
+    require: ['^ionItem', '^ionList'],
+    priority: Number.MAX_VALUE,
+    compile: function($element, $attr) {
+      $attr.$set('class', ($attr['class'] || '') + ' button icon button-icon', true);
+      $element[0].setAttribute('data-prevent-scroll', true);
+      return function($scope, $element, $attr, ctrls) {
+        var itemCtrl = ctrls[0];
+        var listCtrl = ctrls[1];
+        $scope.$onReorder = function(oldIndex, newIndex) {
+          $scope.$eval($attr.onReorder, {
+            $fromIndex: oldIndex,
+            $toIndex: newIndex
+          });
+        };
+
+        var container = angular.element(ITEM_TPL_REORDER_BUTTON);
+        container.append($element);
+        itemCtrl.$element.append(container).addClass('item-right-editable');
+
+        if (listCtrl.showReorder()) {
+          $animate.removeClass(container, 'ng-hide');
+        }
+      };
+    }
+  };
+}]);
+
+/**
+* @ngdoc directive
+* @name ionList
+* @module ionic
+* @delegate ionic.service:$ionicListDelegate
+* @codepen JsHjf
+* @restrict E
+* @description
+* The List is a widely used interface element in almost any mobile app, and can include
+* content ranging from basic text all the way to buttons, toggles, icons, and thumbnails.
+*
+* Both the list, which contains items, and the list items themselves can be any HTML
+* element. The containing element requires the `list` class and each list item requires
+* the `item` class.
+*
+* However, using the ionList and ionItem directives make it easy to support various
+* interaction modes such as swipe to edit, drag to reorder, and removing items.
+*
+* Related: {@link ionic.directive:ionItem}, {@link ionic.directive:ionOptionButton}
+* {@link ionic.directive:ionReorderButton}, {@link ionic.directive:ionDeleteButton}, [`list CSS documentation`](/docs/components/#list).
+*
+* @usage
+*
+* Basic Usage:
+*
+* ```html
+* <ion-list>
+*   <ion-item ng-repeat="item in items">
+*     {% raw %}Hello, {{item}}!{% endraw %}
+*   </ion-item>
+* </ion-list>
+* ```
+*
+* Advanced Usage: Thumbnails, Delete buttons, Reordering, Swiping
+*
+* ```html
+* <ion-list ng-controller="MyCtrl"
+*           show-delete="shouldShowDelete"
+*           show-reorder="shouldShowReorder"
+*           can-swipe="listCanSwipe">
+*   <ion-item ng-repeat="item in items"
+*             class="item-thumbnail-left">
+*
+*     {% raw %}<img ng-src="{{item.img}}">
+*     <h2>{{item.title}}</h2>
+*     <p>{{item.description}}</p>{% endraw %}
+*     <ion-option-button class="button-positive"
+*                        ng-click="share(item)">
+*       Share
+*     </ion-option-button>
+*     <ion-option-button class="button-info"
+*                        ng-click="edit(item)">
+*       Edit
+*     </ion-option-button>
+*     <ion-delete-button class="ion-minus-circled"
+*                        ng-click="items.splice($index, 1)">
+*     </ion-delete-button>
+*     <ion-reorder-button class="ion-navicon"
+*                         on-reorder="reorderItem(item, $fromIndex, $toIndex)">
+*     </ion-reorder-button>
+*
+*   </ion-item>
+* </ion-list>
+* ```
+*
+* @param {string=} delegate-handle The handle used to identify this list with
+* {@link ionic.service:$ionicListDelegate}.
+* @param show-delete {boolean=} Whether the delete buttons for the items in the list are
+* currently shown or hidden.
+* @param show-reorder {boolean=} Whether the reorder buttons for the items in the list are
+* currently shown or hidden.
+* @param can-swipe {boolean=} Whether the items in the list are allowed to be swiped to reveal
+* option buttons. Default: true.
+*/
+IonicModule
+.directive('ionList', [
+'$animate',
+'$timeout',
+function($animate, $timeout) {
+  return {
+    restrict: 'E',
+    require: ['ionList', '^?$ionicScroll'],
+    controller: '$ionicList',
+    compile: function($element, $attr) {
+      var listEl = angular.element('<div class="list">')
+      .append( $element.contents() );
+      $element.append(listEl);
+
+      return function($scope, $element, $attrs, ctrls) {
+        var listCtrl = ctrls[0];
+        var scrollCtrl = ctrls[1];
+
+        //Wait for child elements to render...
+        $timeout(init);
+
+        function init() {
+          var listView = listCtrl.listView = new ionic.views.ListView({
+            el: $element[0],
+            listEl: $element.children()[0],
+            scrollEl: scrollCtrl && scrollCtrl.element,
+            scrollView: scrollCtrl && scrollCtrl.scrollView,
+            onReorder: function(el, oldIndex, newIndex) {
+              var itemScope = angular.element(el).scope();
+              if (itemScope && itemScope.$onReorder) {
+                itemScope.$onReorder(oldIndex, newIndex);
+              }
+            },
+            canSwipe: function() {
+              return listCtrl.canSwipeItems();
+            }
+          });
+
+          if (angular.isDefined($attr.canSwipe)) {
+            $scope.$watch('!!(' + $attr.canSwipe + ')', function(value) {
+              listCtrl.canSwipeItems(value);
+            });
+          }
+
+          if (angular.isDefined($attr.showDelete)) {
+            $scope.$watch('!!(' + $attr.showDelete + ')', function(value) {
+              listCtrl.showDelete(value);
+            });
+          }
+          if (angular.isDefined($attr.showReorder)) {
+            $scope.$watch('!!(' + $attr.showReorder + ')', function(value) {
+              listCtrl.showReorder(value);
+            });
+          }
+
+          $scope.$watch(function() {
+            return listCtrl.showDelete();
+          }, function(isShown, wasShown) {
+            //Only use isShown=false if it was already shown
+            if (!isShown && !wasShown) { return; }
+
+            if (isShown) listCtrl.closeOptionButtons();
+            listCtrl.canSwipeItems(!isShown);
+
+            $element.children().toggleClass('list-left-editing', isShown);
+            toggleNgHide('.item-delete.item-left-edit', isShown);
+            toggleTapDisabled('.item-content', isShown);
+          });
+          $scope.$watch(function() {
+            return listCtrl.showReorder();
+          }, function(isShown, wasShown) {
+            //Only use isShown=false if it was already shown
+            if (!isShown && !wasShown) { return; }
+
+            if (isShown) listCtrl.closeOptionButtons();
+            listCtrl.canSwipeItems(!isShown);
+
+            $element.children().toggleClass('list-right-editing', isShown);
+            toggleNgHide('.item-reorder.item-right-edit', isShown);
+            toggleTapDisabled('.item-content', isShown);
+          });
+
+          function toggleNgHide(selector, shouldShow) {
+            angular.forEach($element[0].querySelectorAll(selector), function(node) {
+              if (shouldShow) {
+                $animate.removeClass(angular.element(node), 'ng-hide');
+              } else {
+                $animate.addClass(angular.element(node), 'ng-hide');
+              }
+            });
+          }
+          function toggleTapDisabled(selector, shouldDisable) {
+            var el = angular.element($element[0].querySelectorAll(selector));
+            if (shouldDisable) {
+              el.attr('data-tap-disabled', 'true');
+            } else {
+              el.removeAttr('data-tap-disabled');
+            }
+          }
+        }
+
+      };
+    }
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name menuClose
+ * @module ionic
+ * @restrict AC
+ *
+ * @description
+ * Closes a side menu which is currently opened.
+ *
+ * @usage
+ * Below is an example of a link within a side menu. Tapping this link would
+ * automatically close the currently opened menu
+ *
+ * ```html
+ * <a menu-close href="#/home" class="item">Home</a>
+ * ```
+ */
+IonicModule
+.directive('menuClose', ['$ionicViewService', function($ionicViewService) {
+  return {
+    restrict: 'AC',
+    require: '^ionSideMenus',
+    link: function($scope, $element, $attr, sideMenuCtrl) {
+      $element.bind('click', function(){
+        sideMenuCtrl.close();
+      });
+    }
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name menuToggle
+ * @module ionic
+ * @restrict AC
+ *
+ * @description
+ * Toggle a side menu on the given side
+ *
+ * @usage
+ * Below is an example of a link within a nav bar. Tapping this link would
+ * automatically open the given side menu
+ *
+ * ```html
+ * <ion-view>
+ *   <ion-nav-buttons side="left">
+ *    <button menu-toggle="left" class="button button-icon icon ion-navicon"></button>
+ *   </ion-nav-buttons>
+ *  ...
+ * </ion-view>
+ * ```
+ */
+IonicModule
+.directive('menuToggle', ['$ionicViewService', function($ionicViewService) {
+  return {
+    restrict: 'AC',
+    require: '^ionSideMenus',
+    link: function($scope, $element, $attr, sideMenuCtrl) {
+      var side = $attr.menuToggle || 'left';
+      $element.bind('click', function(){
+        if(side === 'left') {
+          sideMenuCtrl.toggleLeft();
+        } else if(side === 'right') {
+          sideMenuCtrl.toggleRight();
+        }
+      });
+    }
+  };
+}])
+
+
+/*
+ * We don't document the ionModal directive, we instead document
+ * the $ionicModal service
+ */
+IonicModule
+.directive('ionModal', [function() {
+  return {
+    restrict: 'E',
+    transclude: true,
+    replace: true,
+    template: '<div class="modal-backdrop">' +
+                '<div class="modal-wrapper" ng-transclude></div>' +
+                '</div>'
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name ionNavBackButton
+ * @module ionic
+ * @restrict E
+ * @parent ionNavBar
+ * @description
+ * Creates a back button inside an {@link ionic.directive:ionNavBar}.
+ *
+ * Will show up when the user is able to go back in the current navigation stack.
+ *
+ * By default, will go back when clicked.  If you wish for more advanced behavior, see the
+ * examples below.
+ *
+ * @usage
+ *
+ * With default click action:
+ *
+ * ```html
+ * <ion-nav-bar>
+ *   <ion-nav-back-button class="button-clear">
+ *     <i class="ion-arrow-left-c"></i> Back
+ *   </ion-nav-back-button>
+ * </ion-nav-bar>
+ * ```
+ *
+ * With custom click action, using {@link ionic.service:$ionicNavBarDelegate}:
+ *
+ * ```html
+ * <ion-nav-bar ng-controller="MyCtrl">
+ *   <ion-nav-back-button class="button-clear"
+ *     ng-click="canGoBack && goBack()">
+ *     <i class="ion-arrow-left-c"></i> Back
+ *   </ion-nav-back-button>
+ * </ion-nav-bar>
+ * ```
+ * ```js
+ * function MyCtrl($scope, $ionicNavBarDelegate) {
+ *   $scope.goBack = function() {
+ *     $ionicNavBarDelegate.back();
+ *   };
+ * }
+ * ```
+ *
+ * Displaying the previous title on the back button, again using
+ * {@link ionic.service:$ionicNavBarDelegate}.
+ *
+ * ```html
+ * <ion-nav-bar ng-controller="MyCtrl">
+ *   <ion-nav-back-button class="button-icon">
+ *     <i class="icon ion-arrow-left-c"></i>{% raw %}{{getPreviousTitle() || 'Back'}}{% endraw %}
+ *   </ion-nav-back-button>
+ * </ion-nav-bar>
+ * ```
+ * ```js
+ * function MyCtrl($scope, $ionicNavBarDelegate) {
+ *   $scope.getPreviousTitle = function() {
+ *     return $ionicNavBarDelegate.getPreviousTitle();
+ *   };
+ * }
+ * ```
+ */
+IonicModule
+.directive('ionNavBackButton', [
+  '$animate',
+  '$rootScope',
+function($animate, $rootScope) {
+  var backIsShown = false;
+  //If the current viewstate does not allow a back button,
+  //always hide it.
+  $rootScope.$on('$viewHistory.historyChange', function(e, data) {
+    backIsShown = !!data.showBack;
+  });
+  return {
+    restrict: 'E',
+    require: '^ionNavBar',
+    compile: function(tElement, tAttrs) {
+      tElement.addClass('button back-button ng-hide');
+      return function($scope, $element, $attr, navBarCtrl) {
+        if (!$attr.ngClick) {
+          $scope.$navBack = navBarCtrl.back;
+          $element.on('click', function(event){
+            $scope.$apply(function() {
+              $scope.$navBack(event);
+            });
+          });
+        }
+
+        //Make sure both that a backButton is allowed in the first place,
+        //and that it is shown by the current view.
+        $scope.$watch(function() {
+          return !!(backIsShown && $scope.backButtonShown);
+        }, ionic.animationFrameThrottle(function(show) {
+          if (show) $animate.removeClass($element, 'ng-hide');
+          else $animate.addClass($element, 'ng-hide');
+        }));
+      };
+    }
+  };
+}]);
+
+
+/**
+ * @ngdoc directive
+ * @name ionNavBar
+ * @module ionic
+ * @delegate ionic.service:$ionicNavBarDelegate
+ * @restrict E
+ *
+ * @description
+ * If we have an {@link ionic.directive:ionNavView} directive, we can also create an
+ * `<ion-nav-bar>`, which will create a topbar that updates as the application state changes.
+ *
+ * We can add a back button by putting an {@link ionic.directive:ionNavBackButton} inside.
+ *
+ * We can add buttons depending on the currently visible view using
+ * {@link ionic.directive:ionNavButtons}.
+ *
+ * Assign an [animation class](/docs/components#animations) to the element to
+ * enable animated changing of titles (recommended: 'nav-title-slide-ios7')
+ *
+ * @usage
+ *
+ * ```html
+ * <body ng-app="starter">
+ *   <!-- The nav bar that will be updated as we navigate -->
+ *   <ion-nav-bar class="bar-positive nav-title-slide-ios7">
+ *   </ion-nav-bar>
+ *
+ *   <!-- where the initial view template will be rendered -->
+ *   <ion-nav-view></ion-nav-view>
+ * </body>
+ * ```
+ *
+ * @param {string=} delegate-handle The handle used to identify this navBar
+ * with {@link ionic.service:$ionicNavBarDelegate}.
+ * @param align-title {string=} Where to align the title of the navbar.
+ * Available: 'left', 'right', 'center'. Defaults to 'center'.
+ *
+ * </table><br/>
+ *
+ * ### Alternative Usage
+ *
+ * Alternatively, you may put ion-nav-bar inside of each individual view's ion-view element.
+ * This will allow you to have the whole navbar, not just its contents, transition every view change.
+ *
+ * This is similar to using a header bar inside your ion-view, except it will has all the power of a navbar.
+ *
+ * If you do this, simply put nav buttons inside the navbar itself; do not use `<ion-nav-buttons>`.
+ *
+ *
+ * ```html
+ * <ion-nav-bar class="bar-positive">
+ *   <ion-nav-back-button>
+ *     Back
+ *   </ion-nav-back-button>
+ *   <div class="buttons right-buttons">
+ *     <button class="button">
+ *       Right Button
+ *     </button>
+ *   </div>
+ * </ion-nav-bar>
+ * <ion-view title="myTitle">
+ * </ion-view>
+ * ```
+ */
+IonicModule
+.directive('ionNavBar', [
+  '$ionicViewService',
+  '$rootScope',
+  '$animate',
+  '$compile',
+function($ionicViewService, $rootScope, $animate, $compile) {
+
+  return {
+    restrict: 'E',
+    controller: '$ionicNavBar',
+    scope: true,
+    compile: function(tElement, tAttrs) {
+      //We cannot transclude here because it breaks element.data() inheritance on compile
+      tElement
+        .addClass('bar bar-header nav-bar')
+        .append(
+          '<div class="buttons left-buttons"> ' +
+          '</div>' +
+          '<h1 ng-bind-html="title" class="title"></h1>' +
+          '<div class="buttons right-buttons"> ' +
+          '</div>'
+        );
+
+      return { pre: prelink };
+      function prelink($scope, $element, $attr, navBarCtrl) {
+        navBarCtrl._headerBarView = new ionic.views.HeaderBar({
+          el: $element[0],
+          alignTitle: $attr.alignTitle || 'center'
+        });
+
+        //defaults
+        $scope.backButtonShown = false;
+        $scope.shouldAnimate = true;
+        $scope.isReverse = false;
+        $scope.isInvisible = true;
+
+        $scope.$on('$destroy', function() {
+          $scope.$parent.$hasHeader = false;
+        });
+
+        $scope.$watch(function() {
+          return ($scope.isReverse ? ' reverse' : '') +
+            ($scope.isInvisible ? ' invisible' : '') +
+            (!$scope.shouldAnimate ? ' no-animation' : '');
+        }, function(className, oldClassName) {
+          $element.removeClass(oldClassName);
+          $element.addClass(className);
+        });
+
+      }
+    }
+  };
+}]);
+
+
+/**
+ * @ngdoc directive
+ * @name ionNavButtons
  * @module ionic
  * @restrict E
  * @parent ionNavView
  *
  * @description
- * A container for content, used to tell a parent {@link ionic.directive:ionNavBar}
- * about the current view.
+ * Use ionNavButtons to set the buttons on your {@link ionic.directive:ionNavBar}
+ * from within an {@link ionic.directive:ionView}.
+ *
+ * Any buttons you declare will be placed onto the navbar's corresponding side,
+ * and then destroyed when the user leaves their parent view.
  *
  * @usage
- * Below is an example where our page will load with a navbar containing "My Page" as the title.
- *
  * ```html
- * <ion-nav-bar></ion-nav-bar>
- * <ion-nav-view class="slide-left-right">
- *   <ion-view title="My Page">
+ * <ion-nav-bar>
+ * </ion-nav-bar>
+ * <ion-nav-view>
+ *   <ion-view>
+ *     <ion-nav-buttons side="left">
+ *       <button class="button" ng-click="doSomething()">
+ *         I'm a button on the left of the navbar!
+ *       </button>
+ *     </ion-nav-buttons>
  *     <ion-content>
- *       Hello!
+ *       Some super content here!
  *     </ion-content>
  *   </ion-view>
  * </ion-nav-view>
  * ```
  *
- * @param {string=} title The title to display on the parent {@link ionic.directive:ionNavBar}.
- * @param {boolean=} hideBackButton Whether to hide the back button on the parent
- * {@link ionic.directive:ionNavBar} by default.
- * @param {boolean=} hideNavBar Whether to hide the parent
- * {@link ionic.directive:ionNavBar} by default.
+ * @param {string} side The side to place the buttons on in the parent
+ * {@link ionic.directive:ionNavBar}. Available: 'left' or 'right'.
  */
-.directive('ionView', ['$ionicViewService', '$rootScope', '$animate',
-           function( $ionicViewService,   $rootScope,   $animate) {
+IonicModule
+.directive('ionNavButtons', ['$compile', '$animate', function($compile, $animate) {
   return {
-    restrict: 'EA',
-    priority: 1000,
-    require: '^?ionNavBar',
-    compile: function(tElement, tAttrs, transclude) {
-      tElement.addClass('pane');
-      tElement[0].removeAttribute('title');
+    require: '^ionNavBar',
+    restrict: 'E',
+    compile: function($element, $attrs) {
+      var content = $element.contents().remove();
+      return function($scope, $element, $attrs, navBarCtrl) {
+        var navElement = $attrs.side === 'right' ?
+          navBarCtrl.rightButtonsElement :
+          navBarCtrl.leftButtonsElement;
 
-      return function link($scope, $element, $attr, navBarCtrl) {
-        if (!navBarCtrl) {
-          return;
-        }
-        var initialTitle = $attr.title;
-        navBarCtrl.changeTitle(initialTitle, $scope.$navDirection);
+        //Put all of our inside buttons into their own span,
+        //so we can remove them all when this element dies -
+        //even if the buttons have changed through an ng-repeat or the like,
+        //we just remove their div parent and they are gone.
+        var buttons = angular.element('<span>').append(content);
 
-        // watch for changes in the title, don't set initial value as changeTitle does that
-        $attr.$observe('title', function(val, oldVal) {
-          if (val !== initialTitle) {
-            navBarCtrl.setTitle(val);
-          }
+        //Compile buttons inside content so they have access to everything
+        //something inside content does (eg parent ionicScroll)
+        $element.append(buttons);
+        $compile(buttons)($scope);
+
+        //Append buttons to navbar
+        ionic.requestAnimationFrame(function() {
+          $animate.enter(buttons, navElement);
         });
 
-        $scope.$watch($attr.hideBackButton, function(value) {
-          // Should we hide a back button when this tab is shown
-          navBarCtrl.showBackButton(!value);
+        //When our ion-nav-buttons container is destroyed,
+        //destroy everything in the navbar
+        $scope.$on('$destroy', function() {
+          $animate.leave(buttons);
         });
 
-        $scope.$watch($attr.hideNavBar, function(value) {
-          // Should the nav bar be hidden for this view or not?
-          navBarCtrl.showBar(!value);
-        });
-
+        // The original element is just a completely empty <ion-nav-buttons> element.
+        // make it invisible just to be sure it doesn't change any layout
+        $element.css('display', 'none');
       };
     }
   };
-}])
+}]);
 
+
+/**
+ * @ngdoc directive
+ * @name navClear
+ * @module ionic
+ * @restrict AC
+ *
+ * @description
+ * nav-clear is an attribute directive which should be used with an element that changes
+ * the view on click, for example an `<a href>` or a `<button ui-sref>`.
+ *
+ * nav-clear will cause the given element, when clicked, to disable the next view transition.
+ * This directive is useful, for example, for links within a sideMenu.
+ *
+ * @usage
+ * Below is a link in a side menu, with the nav-clear directive added to it.
+ * Tapping this link will disable any animations that would normally occur
+ * between views.
+ *
+ * ```html
+ * <a nav-clear menu-close href="#/home" class="item">Home</a>
+ * ```
+ */
+IonicModule
+.directive('navClear', [
+  '$ionicViewService',
+  '$state',
+  '$location',
+  '$window',
+  '$rootScope',
+function($ionicViewService, $location, $state, $window, $rootScope) {
+  $rootScope.$on('$stateChangeError', function() {
+    $ionicViewService.nextViewOptions(null);
+  });
+  return {
+    priority: 100,
+    restrict: 'AC',
+    compile: function($element) {
+      return { pre: prelink };
+      function prelink($scope, $element, $attrs) {
+        var unregisterListener;
+        function listenForStateChange() {
+          unregisterListener = $scope.$on('$stateChangeStart', function() {
+            $ionicViewService.nextViewOptions({
+              disableAnimate: true,
+              disableBack: true
+            });
+            unregisterListener();
+          });
+          $window.setTimeout(unregisterListener, 300);
+        }
+
+        $element.on('click', listenForStateChange);
+      }
+    }
+  };
+}]);
 
 /**
  * @ngdoc directive
@@ -37308,24 +43028,25 @@ angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gestu
  *
  * The ionNavView directive is used to render templates in your application. Each template
  * is part of a state. States are usually mapped to a url, and are defined programatically
- * using angular-ui-router (see [their docs](https://github.com/angular-ui/ui-router/wiki)),
+ * using angular-ui-router (see [their docs](https://github.com/angular-ui/ui-router/wiki),
  * and remember to replace ui-view with ion-nav-view in examples).
  *
  * @usage
  * In this example, we will create a navigation view that contains our different states for the app.
  *
- * To do this, in our markup use the ionNavView top level directive, adding an
- * {@link ionic.directive:ionNavBar} directive which will render a header bar that updates as we
- * navigate through the navigation stack.
+ * To do this, in our markup we use ionNavView top level directive. To display a header bar we use
+ * the {@link ionic.directive:ionNavBar} directive that updates as we navigate through the
+ * navigation stack.
  *
- * You can any [animation class](/docs/components#animation) on the navView to have its pages slide.
+ * You can use any [animation class](/docs/components#animation) on the navView's `animation` attribute
+ * to have its pages animate.
+ *
  * Recommended for page transitions: 'slide-left-right', 'slide-left-right-ios7', 'slide-in-up'.
  *
  * ```html
- * <ion-nav-view class="slide-left-right">
+ * <ion-nav-bar></ion-nav-bar>
+ * <ion-nav-view animation="slide-left-right">
  *   <!-- Center content -->
- *   <ion-nav-bar>
- *   </ion-nav-bar>
  * </ion-nav-view>
  * ```
  *
@@ -37378,8 +43099,14 @@ angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gestu
  * same state. You can have views of the same name that live in different states. For more
  * information, see ui-router's [ui-view documentation](http://angular-ui.github.io/ui-router/site/#/api/ui.router.state.directive:ui-view).
  */
-.directive('ionNavView', ['$ionicViewService', '$state', '$compile', '$controller', '$animate',
-              function( $ionicViewService,   $state,   $compile,   $controller,   $animate) {
+IonicModule
+.directive('ionNavView', [
+  '$ionicViewService',
+  '$state',
+  '$compile',
+  '$controller',
+  '$animate',
+function( $ionicViewService,   $state,   $compile,   $controller,   $animate) {
   // IONIC's fork of Angular UI Router, v0.2.7
   // the navView handles registering views in the history, which animation to use, and which
   var viewIsUpdating = false;
@@ -37389,14 +43116,13 @@ angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gestu
     terminal: true,
     priority: 2000,
     transclude: true,
-    controller: [function(){
-    }],
+    controller: function(){},
     compile: function (element, attr, transclude) {
       return function(scope, element, attr, navViewCtrl) {
         var viewScope, viewLocals,
-            name = attr[directive.name] || attr.name || '',
-            onloadExp = attr.onload || '',
-            initialView = transclude(scope);
+          name = attr[directive.name] || attr.name || '',
+          onloadExp = attr.onload || '',
+          initialView = transclude(scope);
 
         // Put back the compiled initial view
         element.append(initialView);
@@ -37421,7 +43147,7 @@ angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gestu
         };
 
         scope.$on('$stateChangeSuccess', eventHook);
-        scope.$on('$viewContentLoading', eventHook);
+        // scope.$on('$viewContentLoading', eventHook);
         updateView(false);
 
         function updateView(doAnimate) {
@@ -37482,739 +43208,1207 @@ angular.module('ionic.ui.viewState', ['ionic.service.view', 'ionic.service.gestu
     }
   };
   return directive;
-}])
-
-
-/**
- * @ngdoc directive
- * @name navClear
- * @module ionic
- * @restrict AC
- *
- * @description
- * Disables any transition animations between views, along with removing the back
- * button which would normally show on the next view. This directive is useful for
- * links within a sideMenu.
- *
- * @usage
- * Below is an example of a link within a side menu. Tapping this link would disable
- * any animations which would normally occur between views.
- *
- * ```html
- * <a nav-clear menu-close href="#/home" class="item">Home</a>
- * ```
- */
-.directive('navClear', ['$ionicViewService', function($ionicViewService) {
-  return {
-    restrict: 'AC',
-    link: function($scope, $element, $attr) {
-      $element.bind('click', function(){
-        $ionicViewService.nextViewOptions({
-          disableAnimate: true,
-          disableBack: true
-        });
-      });
-    }
-  };
 }]);
 
-})();
 
-/*
-(function() {
-'use strict';
+IonicModule
 
-angular.module('ionic.ui.virtRepeat', [])
-
-.directive('ionVirtRepeat', function() {
-  return {
-    require: ['?ngModel', '^virtualList'],
-    transclude: 'element',
-    priority: 1000,
-    terminal: true,
-    compile: function(element, attr, transclude) {
-      return function($scope, $element, $attr, ctrls) {
-        var virtualList = ctrls[1];
-
-        virtualList.listView.renderViewport = function(high, low, start, end) {
-        };
-      };
-    }
-  };
-});
-})(ionic);
-*/
-
-/*
-(function() {
-'use strict';
-
-// Turn the expression supplied to the directive:
-//
-//     a in b
-//
-// into `{ value: "a", collection: "b" }`
-function parseRepeatExpression(expression){
-  var match = expression.match(/^\s*([\$\w]+)\s+in\s+(\S*)\s*$/);
-  if (! match) {
-    throw new Error("Expected sfVirtualRepeat in form of '_item_ in _collection_' but got '" +
-                    expression + "'.");
-  }
-  return {
-    value: match[1],
-    collection: match[2]
-  };
-}
-
-// Utility to filter out elements by tag name
-function isTagNameInList(element, list){
-  var t, tag = element.tagName.toUpperCase();
-  for( t = 0; t < list.length; t++ ){
-    if( list[t] === tag ){
-      return true;
-    }
-  }
-  return false;
-}
-
-
-// Utility to find the viewport/content elements given the start element:
-function findViewportAndContent(startElement){
-  var root = $rootElement[0];
-  var e, n;
-  // Somewhere between the grandparent and the root node
-  for( e = startElement.parent().parent()[0]; e !== root; e = e.parentNode ){
-    // is an element
-    if( e.nodeType != 1 ) break;
-    // that isn't in the blacklist (tables etc.),
-    if( isTagNameInList(e, DONT_WORK_AS_VIEWPORTS) ) continue;
-    // has a single child element (the content),
-    if( e.childElementCount != 1 ) continue;
-    // which is not in the blacklist
-    if( isTagNameInList(e.firstElementChild, DONT_WORK_AS_CONTENT) ) continue;
-    // and no text.
-    for( n = e.firstChild; n; n = n.nextSibling ){
-      if( n.nodeType == 3 && /\S/g.test(n.textContent) ){
-        break;
-      }
-    }
-    if( n === null ){
-      // That element should work as a viewport.
-      return {
-        viewport: angular.element(e),
-        content: angular.element(e.firstElementChild)
-      };
-    }
-  }
-  throw new Error("No suitable viewport element");
-}
-
-// Apply explicit height and overflow styles to the viewport element.
-//
-// If the viewport has a max-height (inherited or otherwise), set max-height.
-// Otherwise, set height from the current computed value or use
-// window.innerHeight as a fallback
-//
-function setViewportCss(viewport){
-  var viewportCss = {'overflow': 'auto'},
-      style = window.getComputedStyle ?
-        window.getComputedStyle(viewport[0]) :
-        viewport[0].currentStyle,
-      maxHeight = style && style.getPropertyValue('max-height'),
-      height = style && style.getPropertyValue('height');
-
-  if( maxHeight && maxHeight !== '0px' ){
-    viewportCss.maxHeight = maxHeight;
-  }else if( height && height !== '0px' ){
-    viewportCss.height = height;
-  }else{
-    viewportCss.height = window.innerHeight;
-  }
-  viewport.css(viewportCss);
-}
-
-// Apply explicit styles to the content element to prevent pesky padding
-// or borders messing with our calculations:
-function setContentCss(content){
-  var contentCss = {
-    margin: 0,
-    padding: 0,
-    border: 0,
-    'box-sizing': 'border-box'
-  };
-  content.css(contentCss);
-}
-
-// TODO: compute outerHeight (padding + border unless box-sizing is border)
-function computeRowHeight(element){
-  var style = window.getComputedStyle ? window.getComputedStyle(element)
-                                      : element.currentStyle,
-      maxHeight = style && style.getPropertyValue('max-height'),
-      height = style && style.getPropertyValue('height');
-
-  if( height && height !== '0px' && height !== 'auto' ){
-    $log.info('Row height is "%s" from css height', height);
-  }else if( maxHeight && maxHeight !== '0px' && maxHeight !== 'none' ){
-    height = maxHeight;
-    $log.info('Row height is "%s" from css max-height', height);
-  }else if( element.clientHeight ){
-    height = element.clientHeight+'px';
-    $log.info('Row height is "%s" from client height', height);
-  }else{
-    throw new Error("Unable to compute height of row");
-  }
-  angular.element(element).css('height', height);
-  return parseInt(height, 10);
-}
-
-angular.module('ionic.ui.virtualRepeat', [])
-
-//
-// A replacement for ng-repeat that supports virtual lists.
-// This is not a 1 to 1 replacement for ng-repeat. However, in situations
-// where you have huge lists, this repeater will work with our virtual
-// scrolling to only render items that are showing or will be showing
-// if a scroll is made.
-//
-.directive('ionVirtualRepeat', ['$log', function($log) {
-    return {
-      require: ['?ngModel, ^virtualList'],
-      transclude: 'element',
-      priority: 1000,
-      terminal: true,
-      compile: function(element, attr, transclude) {
-        var ident = parseRepeatExpression(attr.sfVirtualRepeat);
-
-        return function(scope, iterStartElement, attrs, ctrls, b) {
-          var virtualList = ctrls[1];
-
-          var rendered = [];
-          var rowHeight = 0;
-          var sticky = false;
-
-          var dom = virtualList.element;
-          //var dom = findViewportAndContent(iterStartElement);
-
-          // The list structure is controlled by a few simple (visible) variables:
-          var state = 'ngModel' in attrs ? scope.$eval(attrs.ngModel) : {};
-
-          function makeNewScope (idx, collection, containerScope) {
-            var childScope = containerScope.$new();
-            childScope[ident.value] = collection[idx];
-            childScope.$index = idx;
-            childScope.$first = (idx === 0);
-            childScope.$last = (idx === (collection.length - 1));
-            childScope.$middle = !(childScope.$first || childScope.$last);
-            childScope.$watch(function updateChildScopeItem(){
-              childScope[ident.value] = collection[idx];
-            });
-            return childScope;
-          }
-
-          // Given the collection and a start and end point, add the current
-          function addElements (start, end, collection, containerScope, insPoint) {
-            var frag = document.createDocumentFragment();
-            var newElements = [], element, idx, childScope;
-            for( idx = start; idx !== end; idx ++ ){
-              childScope = makeNewScope(idx, collection, containerScope);
-              element = linker(childScope, angular.noop);
-              //setElementCss(element);
-              newElements.push(element);
-              frag.appendChild(element[0]);
-            }
-            insPoint.after(frag);
-            return newElements;
-          }
-
-          function recomputeActive() {
-            // We want to set the start to the low water mark unless the current
-            // start is already between the low and high water marks.
-            var start = clip(state.firstActive, state.firstVisible - state.lowWater, state.firstVisible - state.highWater);
-            // Similarly for the end
-            var end = clip(state.firstActive + state.active,
-                           state.firstVisible + state.visible + state.lowWater,
-                           state.firstVisible + state.visible + state.highWater );
-            state.firstActive = Math.max(0, start);
-            state.active = Math.min(end, state.total) - state.firstActive;
-          }
-
-          function sfVirtualRepeatOnScroll(evt){
-            if( !rowHeight ){
-              return;
-            }
-            // Enter the angular world for the state change to take effect.
-            scope.$apply(function(){
-              state.firstVisible = Math.floor(evt.target.scrollTop / rowHeight);
-              state.visible = Math.ceil(dom.viewport[0].clientHeight / rowHeight);
-              $log.log('scroll to row %o', state.firstVisible);
-              sticky = evt.target.scrollTop + evt.target.clientHeight >= evt.target.scrollHeight;
-              recomputeActive();
-              $log.log(' state is now %o', state);
-              $log.log(' sticky = %o', sticky);
-            });
-          }
-
-          function sfVirtualRepeatWatchExpression(scope){
-            var coll = scope.$eval(ident.collection);
-            if( coll.length !== state.total ){
-              state.total = coll.length;
-              recomputeActive();
-            }
-            return {
-              start: state.firstActive,
-              active: state.active,
-              len: coll.length
-            };
-          }
-
-          function destroyActiveElements (action, count) {
-            var dead, ii, remover = Array.prototype[action];
-            for( ii = 0; ii < count; ii++ ){
-              dead = remover.call(rendered);
-              dead.scope().$destroy();
-              dead.remove();
-            }
-          }
-
-          // When the watch expression for the repeat changes, we may need to add
-          // and remove scopes and elements
-          function sfVirtualRepeatListener(newValue, oldValue, scope){
-            var oldEnd = oldValue.start + oldValue.active,
-                collection = scope.$eval(ident.collection),
-                newElements;
-            if(newValue === oldValue) {
-              $log.info('initial listen');
-              newElements = addElements(newValue.start, oldEnd, collection, scope, iterStartElement);
-              rendered = newElements;
-              if(rendered.length) {
-                rowHeight = computeRowHeight(newElements[0][0]);
-              }
-            } else {
-              var newEnd = newValue.start + newValue.active;
-              var forward = newValue.start >= oldValue.start;
-              var delta = forward ? newValue.start - oldValue.start
-                                  : oldValue.start - newValue.start;
-              var endDelta = newEnd >= oldEnd ? newEnd - oldEnd : oldEnd - newEnd;
-              var contiguous = delta < (forward ? oldValue.active : newValue.active);
-              $log.info('change by %o,%o rows %s', delta, endDelta, forward ? 'forward' : 'backward');
-              if(!contiguous) {
-                $log.info('non-contiguous change');
-                destroyActiveElements('pop', rendered.length);
-                rendered = addElements(newValue.start, newEnd, collection, scope, iterStartElement);
-              } else {
-                if(forward) {
-                  $log.info('need to remove from the top');
-                  destroyActiveElements('shift', delta);
-                } else if(delta) {
-                  $log.info('need to add at the top');
-                  newElements = addElements(
-                    newValue.start,
-                    oldValue.start,
-                    collection, scope, iterStartElement);
-                  rendered = newElements.concat(rendered);
-                }
-
-                if(newEnd < oldEnd) {
-                  $log.info('need to remove from the bottom');
-                  destroyActiveElements('pop', oldEnd - newEnd);
-                } else if(endDelta) {
-                  var lastElement = rendered[rendered.length-1];
-                  $log.info('need to add to the bottom');
-                  newElements = addElements(
-                    oldEnd,
-                    newEnd,
-                    collection, scope, lastElement);
-                  rendered = rendered.concat(newElements);
-                }
-              }
-              if(!rowHeight && rendered.length) {
-                rowHeight = computeRowHeight(rendered[0][0]);
-              }
-              dom.content.css({'padding-top': newValue.start * rowHeight + 'px'});
-            }
-            dom.content.css({'height': newValue.len * rowHeight + 'px'});
-            if(sticky) {
-              dom.viewport[0].scrollTop = dom.viewport[0].clientHeight + dom.viewport[0].scrollHeight;
-            }
-          }
-
-          //  - The index of the first active element
-          state.firstActive = 0;
-          //  - The index of the first visible element
-          state.firstVisible = 0;
-          //  - The number of elements visible in the viewport.
-          state.visible = 0;
-          // - The number of active elements
-          state.active = 0;
-          // - The total number of elements
-          state.total = 0;
-          // - The point at which we add new elements
-          state.lowWater = state.lowWater || 100;
-          // - The point at which we remove old elements
-          state.highWater = state.highWater || 300;
-          // TODO: now watch the water marks
-
-          setContentCss(dom.content);
-          setViewportCss(dom.viewport);
-          // When the user scrolls, we move the `state.firstActive`
-          dom.bind('momentumScrolled', sfVirtualRepeatOnScroll);
-
-          scope.$on('$destroy', function () {
-            dom.unbind('momentumScrolled', sfVirtualRepeatOnScroll);
-          });
-
-          // The watch on the collection is just a watch on the length of the
-          // collection. We don't care if the content changes.
-          scope.$watch(sfVirtualRepeatWatchExpression, sfVirtualRepeatListener, true);
-        };
-      }
-    };
+.config(['$provide', function($provide) {
+  $provide.decorator('ngClickDirective', ['$delegate', function($delegate) {
+    // drop the default ngClick directive
+    $delegate.shift();
+    return $delegate;
   }]);
-
-})(ionic);
-*/
-
-angular.module('ionic.ui.scroll')
-
-/**
- * @ngdoc service
- * @name $ionicScrollDelegate
- * @module ionic
- * @description
- * Delegate for controlling scrollViews (created by
- * {@link ionic.directive:ionContent} and
- * {@link ionic.directive:ionScroll} directives).
- *
- * Methods called directly on the $ionicScrollDelegate service will control all scroll
- * views.  Use the {@link ionic.service:$ionicScrollDelegate#$getByHandle $getByHandle}
- * method to control specific scrollViews.
- *
- * @usage
- *
- * ```html
- * <body ng-controller="MainCtrl">
- *   <ion-content>
- *     <button ng-click="scrollTop()">Scroll to Top!</button>
- *   </ion-content>
- * </body>
- * ```
- * ```js
- * function MainCtrl($scope, $ionicScrollDelegate) {
- *   $scope.scrollTop = function() {
- *     $ionicScrollDelegate.scrollTop();
- *   };
- * }
- * ```
- *
- * Example of advanced usage, with two scroll areas using `delegate-handle`
- * for fine control.
- *
- * ```html
- * <body ng-controller="MainCtrl">
- *   <ion-content delegate-handle="mainScroll">
- *     <button ng-click="scrollMainToTop()">
- *       Scroll content to top!
- *     </button>
- *     <ion-scroll delegate-handle="small" style="height: 100px;">
- *       <button ng-click="scrollSmallToTop()">
- *         Scroll small area to top!
- *       </button>
- *     </ion-scroll>
- *   </ion-content>
- * </body>
- * ```
- * ```js
- * function MainCtrl($scope, $ionicScrollDelegate) {
- *   $scope.scrollMainToTop = function() {
- *     $ionicScrollDelegate.$getByHandle('mainScroll').scrollTop();
- *   };
- *   $scope.scrollSmallToTop = function() {
- *     $ionicScrollDelegate.$getByHandle('small').scrollTop();
- *   };
- * }
- * ```
- */
-
-.service('$ionicScrollDelegate', delegateService([
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#resize
-   * @description Tell the scrollView to recalculate the size of its container.
-   */
-  'resize',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#scrollTop
-   * @param {boolean=} shouldAnimate Whether the scroll should animate.
-   */
-  'scrollTop',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#scrollBottom
-   * @param {boolean=} shouldAnimate Whether the scroll should animate.
-   */
-  'scrollBottom',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#scrollTo
-   * @param {number} left The x-value to scroll to.
-   * @param {number} top The y-value to scroll to.
-   * @param {boolean=} shouldAnimate Whether the scroll should animate.
-   */
-  'scrollTo',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#anchorScroll
-   * @description Tell the scrollView to scroll to the element with an id
-   * matching window.location.hash.
-   *
-   * If no matching element is found, it will scroll to top.
-   *
-   * @param {boolean=} shouldAnimate Whether the scroll should animate.
-   */
-  'anchorScroll',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#rememberScrollPosition
-   * @description
-   * Will make it so, when this scrollView is destroyed (user leaves the page),
-   * the last scroll position the page was on will be saved, indexed by the
-   * given id.
-   *
-   * Note: for pages associated with a view under an ion-nav-view,
-   * rememberScrollPosition automatically saves their scroll.
-   *
-   * Related methods: scrollToRememberedPosition, forgetScrollPosition (below).
-   *
-   * In the following example, the scroll position of the ion-scroll element
-   * will persist, even when the user changes the toggle switch.
-   *
-   * ```html
-   * <ion-toggle ng-model="shouldShowScrollView"></ion-toggle>
-   * <ion-scroll delegate-handle="myScroll" ng-if="shouldShowScrollView">
-   *   <div ng-controller="ScrollCtrl">
-   *     <ion-list>
-   *       <ion-item ng-repeat="i in items">{{i}}</ion-item>
-   *     </ion-list>
-   *   </div>
-   * </ion-scroll>
-   * ```
-   * ```js
-   * function ScrollCtrl($scope, $ionicScrollDelegate) {
-   *   var delegate = $ionicScrollDelegate.$getByHandle('myScroll');
-   *
-   *   // Put any unique ID here.  The point of this is: every time the controller is recreated
-   *   // we want to load the correct remembered scroll values.
-   *   delegate.rememberScrollPosition('my-scroll-id');
-   *   delegate.scrollToRememberedPosition();
-   *   $scope.items = [];
-   *   for (var i=0; i<100; i++) {
-   *     $scope.items.push(i);
-   *   }
-   * }
-   * ```
-   *
-   * @param {string} id The id to remember the scroll position of this
-   * scrollView by.
-   */
-  'rememberScrollPosition',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#forgetScrollPosition
-   * @description
-   * Stop remembering the scroll position for this scrollView.
-   */
-  'forgetScrollPosition',
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#scrollToRememberedPosition
-   * @description
-   * If this scrollView has an id associated with its scroll position,
-   * (through calling rememberScrollPosition), and that position is remembered,
-   * load the position and scroll to it.
-   * @param {boolean=} shouldAnimate Whether to animate the scroll.
-   */
-  'scrollToRememberedPosition'
-  /**
-   * @ngdoc method
-   * @name $ionicScrollDelegate#$getByHandle
-   * @param {string} handle
-   * @returns `delegateInstance` A delegate instance that controls only the
-   * scrollViews with `delegate-handle` matching the given handle.
-   *
-   * Example: `$ionicScrollDelegate.$getByHandle('my-handle').scrollTop();`
-   */
-]))
+}])
 
 /**
  * @private
  */
-.factory('$$scrollValueCache', function() {
-  return {};
-})
+.factory('$ionicNgClick', ['$parse', function($parse) {
+  return function(scope, element, clickExpr) {
+    var clickHandler = $parse(clickExpr);
 
-.controller('$ionicScroll', [
-  '$scope',
-  'scrollViewOptions',
-  '$timeout',
-  '$window',
-  '$$scrollValueCache',
-  '$location',
-  '$rootScope',
-  '$document',
-  '$ionicScrollDelegate',
-function($scope, scrollViewOptions, $timeout, $window, $$scrollValueCache, $location, $rootScope, $document, $ionicScrollDelegate) {
-
-  var self = this;
-
-  this._scrollViewOptions = scrollViewOptions; //for testing
-
-  var element = this.element = scrollViewOptions.el;
-  var $element = this.$element = angular.element(element);
-  var scrollView = this.scrollView = new ionic.views.Scroll(scrollViewOptions);
-
-  //Attach self to element as a controller so other directives can require this controller
-  //through `require: '$ionicScroll'
-  //Also attach to parent so that sibling elements can require this
-  ($element.parent().length ? $element.parent() : $element)
-    .data('$$ionicScrollController', this);
-
-  var deregisterInstance = $ionicScrollDelegate._registerInstance(
-    this, scrollViewOptions.delegateHandle
-  );
-
-  if (!angular.isDefined(scrollViewOptions.bouncing)) {
-    ionic.Platform.ready(function() {
-      scrollView.options.bouncing = !ionic.Platform.isAndroid();
-    });
-  }
-
-  var resize = angular.bind(scrollView, scrollView.resize);
-  ionic.on('resize', resize, $window);
-
-  // set by rootScope listener if needed
-  var backListenDone = angular.noop;
-
-  $scope.$on('$destroy', function() {
-    deregisterInstance();
-    ionic.off('resize', resize, $window);
-    $window.removeEventListener('resize', resize);
-    backListenDone();
-    if (self._rememberScrollId) {
-      $$scrollValueCache[self._rememberScrollId] = scrollView.getValues();
-    }
-  });
-
-  $element.on('scroll', function(e) {
-    var detail = (e.originalEvent || e).detail || {};
-    $scope.$onScroll && $scope.$onScroll({
-      event: e,
-      scrollTop: detail.scrollTop || 0,
-      scrollLeft: detail.scrollLeft || 0
-    });
-  });
-
-  $scope.$on('$viewContentLoaded', function(e, historyData) {
-    //only the top-most scroll area under a view should remember that view's
-    //scroll position
-    if (e.defaultPrevented) { return; }
-    e.preventDefault();
-
-    var viewId = historyData && historyData.viewId;
-    if (viewId) {
-      self.rememberScrollPosition(viewId);
-      self.scrollToRememberedPosition();
-
-      backListenDone = $rootScope.$on('$viewHistory.viewBack', function(e, fromViewId, toViewId) {
-        //When going back from this view, forget its saved scroll position
-        if (viewId === fromViewId) {
-          self.forgetScrollPosition();
-        }
+    element.on('click', function(event) {
+      scope.$apply(function() {
+        clickHandler(scope, {$event: (event)});
       });
+    });
+
+    // Hack for iOS Safari's benefit. It goes searching for onclick handlers and is liable to click
+    // something else nearby.
+    element.onclick = function(event) { };
+  };
+}])
+
+.directive('ngClick', ['$ionicNgClick', function($ionicNgClick) {
+  return function(scope, element, attr) {
+    $ionicNgClick(scope, element, attr.ngClick);
+  };
+}])
+
+.directive('ionStopEvent', function () {
+  return {
+    restrict: 'A',
+    link: function (scope, element, attr) {
+      element.bind(attr.ionStopEvent, eventStopPropagation);
     }
-  });
-
-  $timeout(function() {
-    scrollView.run();
-  });
-
-  this._rememberScrollId = null;
-
-  this.resize = function() {
-    return $timeout(resize);
   };
+});
+function eventStopPropagation(e) {
+  e.stopPropagation();
+}
 
-  this.scrollTop = function(shouldAnimate) {
-    this.resize().then(function() {
-      scrollView.scrollTo(0, 0, !!shouldAnimate);
-    });
+
+/**
+ * @ngdoc directive
+ * @name ionPane
+ * @module ionic
+ * @restrict E
+ *
+ * @description A simple container that fits content, with no side effects.  Adds the 'pane' class to the element.
+ */
+IonicModule
+.directive('ionPane', function() {
+  return {
+    restrict: 'E',
+    link: function(scope, element, attr) {
+      element.addClass('pane');
+    }
   };
+});
 
-  this.scrollBottom = function(shouldAnimate) {
-    this.resize().then(function() {
-      var max = scrollView.getScrollMax();
-      scrollView.scrollTo(max.left, max.top, !!shouldAnimate);
-    });
+/**
+ * @ngdoc directive
+ * @name ionRadio
+ * @module ionic
+ * @restrict E
+ * @codepen saoBG
+ * @description
+ * The radio directive is no different than the HTML radio input, except it's styled differently.
+ *
+ * Radio behaves like any [AngularJS radio](http://docs.angularjs.org/api/ng/input/input[radio]).
+ *
+ * @usage
+ * ```html
+ * <ion-radio ng-model="choice" ng-value="A">Choose A</ion-radio>
+ * <ion-radio ng-model="choice" ng-value="B">Choose B</ion-radio>
+ * <ion-radio ng-model="choice" ng-value="C">Choose C</ion-radio>
+ * ```
+ */
+IonicModule
+.directive('ionRadio', function() {
+  return {
+    restrict: 'E',
+    replace: true,
+    require: '?ngModel',
+    scope: {
+      ngModel: '=?',
+      ngValue: '=?',
+      ngChange: '&',
+      icon: '@',
+      name: '@'
+    },
+    transclude: true,
+    template: '<label class="item item-radio">' +
+                '<input type="radio" name="radio-group"' +
+                ' ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()">' +
+                '<div class="item-content disable-pointer-events" ng-transclude></div>' +
+                '<i class="radio-icon disable-pointer-events icon ion-checkmark"></i>' +
+              '</label>',
+
+    compile: function(element, attr) {
+      if(attr.name) element.children().eq(0).attr('name', attr.name);
+      if(attr.icon) element.children().eq(2).removeClass('ion-checkmark').addClass(attr.icon);
+    }
   };
+});
 
-  this.scrollTo = function(left, top, shouldAnimate) {
-    this.resize().then(function() {
-      scrollView.scrollTo(left, top, !!shouldAnimate);
-    });
-  };
 
-  this.anchorScroll = function(shouldAnimate) {
-    this.resize().then(function() {
-      var hash = $location.hash();
-      var elm = hash && $document[0].getElementById(hash);
-      if (hash && elm) {
-        var scroll = ionic.DomUtil.getPositionInParent(elm, self.$element);
-        scrollView.scrollTo(scroll.left, scroll.top, !!shouldAnimate);
-      } else {
-        scrollView.scrollTo(0,0, !!shouldAnimate);
+/**
+ * @ngdoc directive
+ * @name ionRefresher
+ * @module ionic
+ * @restrict E
+ * @parent ionic.directive:ionContent, ionic.directive:ionScroll
+ * @description
+ * Allows you to add pull-to-refresh to a scrollView.
+ *
+ * Place it as the first child of your {@link ionic.directive:ionContent} or
+ * {@link ionic.directive:ionScroll} element.
+ *
+ * When refreshing is complete, $broadcast the 'scroll.refreshComplete' event
+ * from your controller.
+ *
+ * @usage
+ *
+ * ```html
+ * <ion-content ng-controller="MyController">
+ *   <ion-refresher
+ *     pulling-text="Pull to refresh..."
+ *     on-refresh="doRefresh()">
+ *   </ion-refresher>
+ *   <ion-list>
+ *     <ion-item ng-repeat="item in items"></ion-item>
+ *   </ion-list>
+ * </ion-content>
+ * ```
+ * ```js
+ * angular.module('testApp', ['ionic'])
+ * .controller('MyController', function($scope, $http) {
+ *   $scope.items = [1,2,3];
+ *   $scope.doRefresh = function() {
+ *     $http.get('/new-items')
+ *      .success(function(newItems) {
+ *        $scope.items = newItems;
+ *      })
+ *      .finally(function() {
+ *        // Stop the ion-refresher from spinning
+ *        $scope.$broadcast('scroll.refreshComplete');
+ *      });
+ *   };
+ * });
+ * ```
+ *
+ * @param {expression=} on-refresh Called when the user pulls down enough and lets go
+ * of the refresher.
+ * @param {expression=} on-pulling Called when the user starts to pull down
+ * on the refresher.
+ * @param {string=} pulling-icon The icon to display while the user is pulling down.
+ * Default: 'ion-arrow-down-c'.
+ * @param {string=} pulling-text The text to display while the user is pulling down.
+ * @param {string=} refreshing-icon The icon to display after user lets go of the
+ * refresher.
+ * @param {string=} refreshing-text The text to display after the user lets go of
+ * the refresher.
+ *
+ */
+IonicModule
+.directive('ionRefresher', ['$ionicBind', function($ionicBind) {
+  return {
+    restrict: 'E',
+    replace: true,
+    require: '^$ionicScroll',
+    template:
+    '<div class="scroll-refresher">' +
+      '<div class="ionic-refresher-content" ' +
+      'ng-class="{\'ionic-refresher-with-text\': pullingText || refreshingText}">' +
+        '<i class="icon {{pullingIcon}} icon-pulling"></i>' +
+        '<div class="text-pulling" ng-bind-html="pullingText"></div>' +
+        '<i class="icon {{refreshingIcon}} icon-refreshing"></i>' +
+        '<div class="text-refreshing" ng-bind-html="refreshingText"></div>' +
+      '</div>' +
+    '</div>',
+    compile: function($element, $attrs) {
+      if (angular.isUndefined($attrs.pullingIcon)) {
+        $attrs.$set('pullingIcon', 'ion-arrow-down-c');
       }
-    });
-  };
+      if (angular.isUndefined($attrs.refreshingIcon)) {
+        $attrs.$set('refreshingIcon', 'ion-loading-d');
+      }
+      return function($scope, $element, $attrs, scrollCtrl) {
+        $ionicBind($scope, $attrs, {
+          pullingIcon: '@',
+          pullingText: '@',
+          refreshingIcon: '@',
+          refreshingText: '@',
+          $onRefresh: '&onRefresh',
+          $onPulling: '&onPulling'
+        });
 
-  this.rememberScrollPosition = function(id) {
-    if (!id) {
-      throw new Error("Must supply an id to remember the scroll by!");
+        scrollCtrl._setRefresher($scope, $element[0]);
+        $scope.$on('scroll.refreshComplete', function() {
+          $element[0].classList.remove('active');
+          scrollCtrl.scrollView.finishPullToRefresh();
+        });
+      };
     }
-    this._rememberScrollId = id;
-  };
-  this.forgetScrollPosition = function() {
-    delete $$scrollValueCache[this._rememberScrollId];
-    this._rememberScrollId = null;
-  };
-  this.scrollToRememberedPosition = function(shouldAnimate) {
-    var values = $$scrollValueCache[this._rememberScrollId];
-    if (values) {
-      this.resize().then(function() {
-        scrollView.scrollTo(+values.left, +values.top, shouldAnimate);
-      });
-    }
-  };
-
-
-
-  /**
-   * @private
-   */
-  this._setRefresher = function(refresherScope, refresherElement) {
-    var refresher = this.refresher = refresherElement;
-    var refresherHeight = self.refresher.clientHeight || 0;
-    scrollView.activatePullToRefresh(refresherHeight, function() {
-      refresher.classList.add('active');
-      refresherScope.$onPulling();
-    }, function() {
-      refresher.classList.remove('refreshing');
-      refresher.classList.remove('active');
-    }, function() {
-      refresher.classList.add('refreshing');
-      refresherScope.$onRefresh();
-    });
   };
 }]);
 
+/**
+ * @ngdoc directive
+ * @name ionScroll
+ * @module ionic
+ * @delegate ionic.service:$ionicScrollDelegate
+ * @restrict E
+ *
+ * @description
+ * Creates a scrollable container for all content inside.
+ *
+ * @param {string=} delegate-handle The handle used to identify this scrollView
+ * with {@link ionic.service:$ionicScrollDelegate}.
+ * @param {string=} direction Which way to scroll. 'x' or 'y'. Default 'y'.
+ * @param {boolean=} paging Whether to scroll with paging.
+ * @param {expression=} on-refresh Called on pull-to-refresh, triggered by an {@link ionic.directive:ionRefresher}.
+ * @param {expression=} on-scroll Called whenever the user scrolls.
+ * @param {boolean=} scrollbar-x Whether to show the horizontal scrollbar. Default false.
+ * @param {boolean=} scrollbar-y Whether to show the vertical scrollbar. Default true.
+ * @param {boolean=} zooming Whether to support pinch-to-zoom
+ * @param {integer=} min-zoom The smallest zoom amount allowed (default is 0.5)
+ * @param {integer=} max-zoom The largest zoom amount allowed (default is 3)
+ */
+IonicModule
+.directive('ionScroll', [
+  '$timeout',
+  '$controller',
+  '$ionicBind',
+function($timeout, $controller, $ionicBind) {
+  return {
+    restrict: 'E',
+    scope: true,
+    controller: function() {},
+    compile: function(element, attr) {
+      element.addClass('scroll-view');
+
+      //We cannot transclude here because it breaks element.data() inheritance on compile
+      var innerElement = angular.element('<div class="scroll"></div>');
+      innerElement.append(element.contents());
+      element.append(innerElement);
+
+      return { pre: prelink };
+      function prelink($scope, $element, $attr) {
+        var scrollView, scrollCtrl;
+
+        $ionicBind($scope, $attr, {
+          direction: '@',
+          paging: '@',
+          $onScroll: '&onScroll',
+          scroll: '@',
+          scrollbarX: '@',
+          scrollbarY: '@',
+          zooming: '@',
+          minZoom: '@',
+          maxZoom: '@'
+        });
+
+        if (angular.isDefined($attr.padding)) {
+          $scope.$watch($attr.padding, function(newVal) {
+            innerElement.toggleClass('padding', !!newVal);
+          });
+        }
+        if($scope.$eval($scope.paging) === true) {
+          innerElement.addClass('scroll-paging');
+        }
+
+        if(!$scope.direction) { $scope.direction = 'y'; }
+        var isPaging = $scope.$eval($scope.paging) === true;
+
+        var scrollViewOptions= {
+          el: $element[0],
+          delegateHandle: $attr.delegateHandle,
+          paging: isPaging,
+          scrollbarX: $scope.$eval($scope.scrollbarX) !== false,
+          scrollbarY: $scope.$eval($scope.scrollbarY) !== false,
+          scrollingX: $scope.direction.indexOf('x') >= 0,
+          scrollingY: $scope.direction.indexOf('y') >= 0,
+          zooming: $scope.$eval($scope.zooming) === true,
+          maxZoom: $scope.$eval($scope.maxZoom) || 3,
+          minZoom: $scope.$eval($scope.minZoom) || 0.5
+        };
+        if (isPaging) {
+          scrollViewOptions.speedMultiplier = 0.8;
+          scrollViewOptions.bouncing = false;
+        }
+
+        scrollCtrl = $controller('$ionicScroll', {
+          $scope: $scope,
+          scrollViewOptions: scrollViewOptions
+        });
+        scrollView = $scope.$parent.scrollView = scrollCtrl.scrollView;
+      }
+    }
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name ionSideMenu
+ * @module ionic
+ * @restrict E
+ * @parent ionic.directive:ionSideMenus
+ *
+ * @description
+ * A container for a side menu, sibling to an {@link ionic.directive:ionSideMenuContent} directive.
+ *
+ * @usage
+ * ```html
+ * <ion-side-menu
+ *   side="left"
+ *   width="myWidthValue + 20"
+ *   is-enabled="shouldLeftSideMenuBeEnabled()">
+ * </ion-side-menu>
+ * ```
+ * For a complete side menu example, see the
+ * {@link ionic.directive:ionSideMenus} documentation.
+ *
+ * @param {string} side Which side the side menu is currently on.  Allowed values: 'left' or 'right'.
+ * @param {boolean=} is-enabled Whether this side menu is enabled.
+ * @param {number=} width How many pixels wide the side menu should be.  Defaults to 275.
+ */
+IonicModule
+.directive('ionSideMenu', function() {
+  return {
+    restrict: 'E',
+    require: '^ionSideMenus',
+    scope: true,
+    compile: function(element, attr) {
+      angular.isUndefined(attr.isEnabled) && attr.$set('isEnabled', 'true');
+      angular.isUndefined(attr.width) && attr.$set('width', '275');
+
+      element.addClass('menu menu-' + attr.side);
+
+      return function($scope, $element, $attr, sideMenuCtrl) {
+        $scope.side = $attr.side || 'left';
+
+        var sideMenu = sideMenuCtrl[$scope.side] = new ionic.views.SideMenu({
+          width: 275,
+          el: $element[0],
+          isEnabled: true
+        });
+
+        $scope.$watch($attr.width, function(val) {
+          var numberVal = +val;
+          if (numberVal && numberVal == val) {
+            sideMenu.setWidth(+val);
+          }
+        });
+        $scope.$watch($attr.isEnabled, function(val) {
+          sideMenu.setIsEnabled(!!val);
+        });
+      };
+    }
+  };
+});
+
+/**
+ * @ngdoc directive
+ * @name ionSideMenuContent
+ * @module ionic
+ * @restrict E
+ * @parent ionic.directive:ionSideMenus
+ *
+ * @description
+ * A container for the main visible content, sibling to one or more
+ * {@link ionic.directive:ionSideMenu} directives.
+ *
+ * @usage
+ * ```html
+ * <ion-side-menu-content
+ *   drag-content="true">
+ * </ion-side-menu-content>
+ * ```
+ * For a complete side menu example, see the
+ * {@link ionic.directive:ionSideMenus} documentation.
+ *
+ * @param {boolean=} drag-content Whether the content can be dragged. Default true.
+ *
+ */
+IonicModule
+.directive('ionSideMenuContent', [
+  '$timeout',
+  '$ionicGesture',
+function($timeout, $ionicGesture) {
+
+  return {
+    restrict: 'EA', //DEPRECATED 'A'
+    require: '^ionSideMenus',
+    scope: true,
+    compile: function(element, attr) {
+      return { pre: prelink };
+      function prelink($scope, $element, $attr, sideMenuCtrl) {
+
+        $element.addClass('menu-content pane');
+
+        if (angular.isDefined(attr.dragContent)) {
+          $scope.$watch(attr.dragContent, function(value) {
+            sideMenuCtrl.canDragContent(value);
+          });
+        } else {
+          sideMenuCtrl.canDragContent(true);
+        }
+
+        var defaultPrevented = false;
+        var isDragging = false;
+
+        // Listen for taps on the content to close the menu
+        function contentTap(e) {
+          if(sideMenuCtrl.getOpenAmount() !== 0) {
+            sideMenuCtrl.close();
+            e.gesture.srcEvent.preventDefault();
+          }
+        }
+        ionic.on('tap', contentTap, $element[0]);
+
+        var dragFn = function(e) {
+          if(defaultPrevented || !sideMenuCtrl.isDraggableTarget(e)) return;
+          isDragging = true;
+          sideMenuCtrl._handleDrag(e);
+          e.gesture.srcEvent.preventDefault();
+        };
+
+        var dragVertFn = function(e) {
+          if(isDragging) {
+            e.gesture.srcEvent.preventDefault();
+          }
+        };
+
+        //var dragGesture = Gesture.on('drag', dragFn, $element);
+        var dragRightGesture = $ionicGesture.on('dragright', dragFn, $element);
+        var dragLeftGesture = $ionicGesture.on('dragleft', dragFn, $element);
+        var dragUpGesture = $ionicGesture.on('dragup', dragVertFn, $element);
+        var dragDownGesture = $ionicGesture.on('dragdown', dragVertFn, $element);
+
+        var dragReleaseFn = function(e) {
+          isDragging = false;
+          if(!defaultPrevented) {
+            sideMenuCtrl._endDrag(e);
+          }
+          defaultPrevented = false;
+        };
+
+        var releaseGesture = $ionicGesture.on('release', dragReleaseFn, $element);
+
+        sideMenuCtrl.setContent({
+          onDrag: function(e) {},
+          endDrag: function(e) {},
+          getTranslateX: function() {
+            return $scope.sideMenuContentTranslateX || 0;
+          },
+          setTranslateX: ionic.animationFrameThrottle(function(amount) {
+            $element[0].style[ionic.CSS.TRANSFORM] = 'translate3d(' + amount + 'px, 0, 0)';
+            $timeout(function() {
+              $scope.sideMenuContentTranslateX = amount;
+            });
+          }),
+          enableAnimation: function() {
+            //this.el.classList.add(this.animateClass);
+            $scope.animationEnabled = true;
+            $element[0].classList.add('menu-animated');
+          },
+          disableAnimation: function() {
+            //this.el.classList.remove(this.animateClass);
+            $scope.animationEnabled = false;
+            $element[0].classList.remove('menu-animated');
+          }
+        });
+
+        // Cleanup
+        $scope.$on('$destroy', function() {
+          $ionicGesture.off(dragLeftGesture, 'dragleft', dragFn);
+          $ionicGesture.off(dragRightGesture, 'dragright', dragFn);
+          $ionicGesture.off(dragUpGesture, 'dragup', dragFn);
+          $ionicGesture.off(dragDownGesture, 'dragdown', dragFn);
+          $ionicGesture.off(releaseGesture, 'release', dragReleaseFn);
+          ionic.off('tap', contentTap, $element[0]);
+        });
+      }
+    }
+  };
+}]);
+
+IonicModule
+
+/**
+ * @ngdoc directive
+ * @name ionSideMenus
+ * @module ionic
+ * @delegate ionic.service:$ionicSideMenuDelegate
+ * @restrict E
+ *
+ * @description
+ * A container element for side menu(s) and the main content. Allows the left
+ * and/or right side menu to be toggled by dragging the main content area side
+ * to side.
+ *
+ * ![Side Menu](http://ionicframework.com.s3.amazonaws.com/docs/controllers/sidemenu.gif)
+ *
+ * For more information on side menus, check out the documenation for
+ * {@link ionic.directive:ionSideMenuContent} and
+ * {@link ionic.directive:ionSideMenu}.
+ *
+ * @usage
+ * To use side menus, add an `<ion-side-menus>` parent element,
+ * an `<ion-side-menu-content>` for the center content,
+ * and one or more `<ion-side-menu>` directives.
+ *
+ * ```html
+ * <ion-side-menus>
+ *   <!-- Center content -->
+ *   <ion-side-menu-content ng-controller="ContentController">
+ *   </ion-side-menu-content>
+ *
+ *   <!-- Left menu -->
+ *   <ion-side-menu side="left">
+ *   </ion-side-menu>
+ *
+ *   <!-- Right menu -->
+ *   <ion-side-menu side="right">
+ *   </ion-side-menu>
+ * </ion-side-menus>
+ * ```
+ * ```js
+ * function ContentController($scope, $ionicSideMenuDelegate) {
+ *   $scope.toggleLeft = function() {
+ *     $ionicSideMenuDelegate.toggleLeft();
+ *   };
+ * }
+ * ```
+ *
+ * @param {string=} delegate-handle The handle used to identify this side menu
+ * with {@link ionic.service:$ionicSideMenuDelegate}.
+ *
+ */
+.directive('ionSideMenus', [function() {
+  return {
+    restrict: 'ECA',
+    replace: true,
+    transclude: true,
+    controller: '$ionicSideMenus',
+    template: '<div class="view" ng-transclude></div>'
+  };
+}]);
+
+
+/**
+ * @ngdoc directive
+ * @name ionSlideBox
+ * @module ionic
+ * @delegate ionic.service:$ionicSlideBoxDelegate
+ * @restrict E
+ * @description
+ * The Slide Box is a multi-page container where each page can be swiped or dragged between:
+ *
+ * ![SlideBox](http://ionicframework.com.s3.amazonaws.com/docs/controllers/slideBox.gif)
+ *
+ * @usage
+ * ```html
+ * <ion-slide-box>
+ *   <ion-slide>
+ *     <div class="box blue"><h1>BLUE</h1></div>
+ *   </ion-slide>
+ *   <ion-slide>
+ *     <div class="box yellow"><h1>YELLOW</h1></div>
+ *   </ion-slide>
+ *   <ion-slide on-slide-changed="slideHasChanged(index)">
+ *     <div class="box pink"><h1>PINK</h1></div>
+ *   </ion-slide>
+ * </ion-slide-box>
+ * ```
+ *
+ * @param {string=} delegate-handle The handle used to identify this slideBox
+ * with {@link ionic.service:$ionicSlideBoxDelegate}.
+ * @param {boolean=} does-continue Whether the slide box should automatically slide.
+ * @param {number=} slide-interval How many milliseconds to wait to change slides (if does-continue is true). Defaults to 4000.
+ * @param {boolean=} show-pager Whether a pager should be shown for this slide box.
+ * @param {expression=} pager-click Expression to call when a pager is clicked (if show-pager is true). Is passed the 'index' variable.
+ * @param {expression=} on-slide-changed Expression called whenever the slide is changed.  Is passed an 'index' variable.
+ * @param {expression=} active-slide Model to bind the current slide to.
+ */
+IonicModule
+.directive('ionSlideBox', [
+  '$timeout',
+  '$compile',
+  '$ionicSlideBoxDelegate',
+function($timeout, $compile, $ionicSlideBoxDelegate) {
+  return {
+    restrict: 'E',
+    replace: true,
+    transclude: true,
+    scope: {
+      doesContinue: '@',
+      slideInterval: '@',
+      showPager: '@',
+      pagerClick: '&',
+      disableScroll: '@',
+      onSlideChanged: '&',
+      activeSlide: '=?'
+    },
+    controller: ['$scope', '$element', '$attrs', function($scope, $element, $attrs) {
+      var _this = this;
+
+      var continuous = $scope.$eval($scope.doesContinue) === true;
+      var slideInterval = continuous ? $scope.$eval($scope.slideInterval) || 4000 : 0;
+
+      var slider = new ionic.views.Slider({
+        el: $element[0],
+        auto: slideInterval,
+        continuous: continuous,
+        startSlide: $scope.activeSlide,
+        slidesChanged: function() {
+          $scope.currentSlide = slider.currentIndex();
+
+          // Try to trigger a digest
+          $timeout(function() {});
+        },
+        callback: function(slideIndex) {
+          $scope.currentSlide = slideIndex;
+          $scope.onSlideChanged({index:$scope.currentSlide});
+          $scope.$parent.$broadcast('slideBox.slideChanged', slideIndex);
+          $scope.activeSlide = slideIndex;
+          // Try to trigger a digest
+          $timeout(function() {});
+        }
+      });
+
+      slider.enableSlide($scope.$eval($attrs.disableScroll) !== true);
+
+      $scope.$watch('activeSlide', function(nv) {
+        if(angular.isDefined(nv)){
+          slider.slide(nv);
+        }
+      });
+
+      $scope.$on('slideBox.nextSlide', function() {
+        slider.next();
+      });
+
+      $scope.$on('slideBox.prevSlide', function() {
+        slider.prev();
+      });
+
+      $scope.$on('slideBox.setSlide', function(e, index) {
+        slider.slide(index);
+      });
+
+      //Exposed for testing
+      this.__slider = slider;
+
+      var deregisterInstance = $ionicSlideBoxDelegate._registerInstance(slider, $attrs.delegateHandle);
+      $scope.$on('$destroy', deregisterInstance);
+
+      this.slidesCount = function() {
+        return slider.slidesCount();
+      };
+
+      this.onPagerClick = function(index) {
+        void 0;
+        $scope.pagerClick({index: index});
+      };
+
+      $timeout(function() {
+        slider.load();
+      });
+    }],
+    template: '<div class="slider">\
+            <div class="slider-slides" ng-transclude>\
+            </div>\
+          </div>',
+
+    link: function($scope, $element, $attr, slideBoxCtrl) {
+      // If the pager should show, append it to the slide box
+      if($scope.$eval($scope.showPager) !== false) {
+        var childScope = $scope.$new();
+        var pager = angular.element('<ion-pager></ion-pager>');
+        $element.append(pager);
+        $compile(pager)(childScope);
+      }
+    }
+  };
+}])
+.directive('ionSlide', function() {
+  return {
+    restrict: 'E',
+    require: '^ionSlideBox',
+    compile: function(element, attr) {
+      element.addClass('slider-slide');
+      return function($scope, $element, $attr) {
+      };
+    },
+  };
+})
+
+.directive('ionPager', function() {
+  return {
+    restrict: 'E',
+    replace: true,
+    require: '^ionSlideBox',
+    template: '<div class="slider-pager"><span class="slider-pager-page" ng-repeat="slide in numSlides() track by $index" ng-class="{active: $index == currentSlide}" ng-click="pagerClick($index)"><i class="icon ion-record"></i></span></div>',
+    link: function($scope, $element, $attr, slideBox) {
+      var selectPage = function(index) {
+        var children = $element[0].children;
+        var length = children.length;
+        for(var i = 0; i < length; i++) {
+          if(i == index) {
+            children[i].classList.add('active');
+          } else {
+            children[i].classList.remove('active');
+          }
+        }
+      };
+
+      $scope.pagerClick = function(index) {
+        slideBox.onPagerClick(index);
+      };
+
+      $scope.numSlides = function() {
+        return new Array(slideBox.slidesCount());
+      };
+
+      $scope.$watch('currentSlide', function(v) {
+        selectPage(v);
+      });
+    }
+  };
+
+});
+
+/**
+ * @ngdoc directive
+ * @name ionTab
+ * @module ionic
+ * @restrict E
+ * @parent ionic.directive:ionTabs
+ *
+ * @description
+ * Contains a tab's content.  The content only exists while the given tab is selected.
+ *
+ * Each ionTab has its own view history.
+ *
+ * @usage
+ * ```html
+ * <ion-tab
+ *   title="Tab!"
+ *   icon="my-icon"
+ *   href="#/tab/tab-link"
+ *   on-select="onTabSelected()"
+ *   on-deselect="onTabDeselected()">
+ * </ion-tab>
+ * ```
+ * For a complete, working tab bar example, see the {@link ionic.directive:ionTabs} documentation.
+ *
+ * @param {string} title The title of the tab.
+ * @param {string=} href The link that this tab will navigate to when tapped.
+ * @param {string=} icon The icon of the tab. If given, this will become the default for icon-on and icon-off.
+ * @param {string=} icon-on The icon of the tab while it is selected.
+ * @param {string=} icon-off The icon of the tab while it is not selected.
+ * @param {expression=} badge The badge to put on this tab (usually a number).
+ * @param {expression=} badge-style The style of badge to put on this tab (eg tabs-positive).
+ * @param {expression=} on-select Called when this tab is selected.
+ * @param {expression=} on-deselect Called when this tab is deselected.
+ * @param {expression=} ng-click By default, the tab will be selected on click. If ngClick is set, it will not.  You can explicitly switch tabs using {@link ionic.service:$ionicTabsDelegate#select $ionicTabsDelegate.select()}.
+ */
+IonicModule
+.directive('ionTab', [
+  '$rootScope',
+  '$animate',
+  '$ionicBind',
+  '$compile',
+function($rootScope, $animate, $ionicBind, $compile) {
+
+  //Returns ' key="value"' if value exists
+  function attrStr(k,v) {
+    return angular.isDefined(v) ? ' ' + k + '="' + v + '"' : '';
+  }
+  return {
+    restrict: 'E',
+    require: ['^ionTabs', 'ionTab'],
+    replace: true,
+    controller: '$ionicTab',
+    scope: true,
+    compile: function(element, attr) {
+
+      //We create the tabNavTemplate in the compile phase so that the
+      //attributes we pass down won't be interpolated yet - we want
+      //to pass down the 'raw' versions of the attributes
+      var tabNavTemplate = '<ion-tab-nav' +
+        attrStr('ng-click', attr.ngClick) +
+        attrStr('title', attr.title) +
+        attrStr('icon', attr.icon) +
+        attrStr('icon-on', attr.iconOn) +
+        attrStr('icon-off', attr.iconOff) +
+        attrStr('badge', attr.badge) +
+        attrStr('badge-style', attr.badgeStyle) +
+        '></ion-tab-nav>';
+
+      //Remove the contents of the element so we can compile them later, if tab is selected
+      //We don't use regular transclusion because it breaks element inheritance
+      var tabContent = angular.element('<div class="pane">')
+        .append( element.contents().remove() );
+
+      return function link($scope, $element, $attr, ctrls) {
+        var childScope;
+        var childElement;
+        var tabsCtrl = ctrls[0];
+        var tabCtrl = ctrls[1];
+
+        var navView = tabContent[0].querySelector('ion-nav-view') ||
+          tabContent[0].querySelector('data-ion-nav-view');
+        var navViewName = navView && navView.getAttribute('name');
+
+        $ionicBind($scope, $attr, {
+          animate: '=',
+          onSelect: '&',
+          onDeselect: '&',
+          title: '@',
+          uiSref: '@',
+          href: '@',
+        });
+
+        tabsCtrl.add($scope);
+        $scope.$on('$destroy', function() {
+          tabsCtrl.remove($scope);
+          tabNavElement.isolateScope().$destroy();
+          tabNavElement.remove();
+        });
+
+        //Remove title attribute so browser-tooltip does not apear
+        $element[0].removeAttribute('title');
+
+        if (navViewName) {
+          tabCtrl.navViewName = navViewName;
+        }
+        $scope.$on('$stateChangeSuccess', selectIfMatchesState);
+        selectIfMatchesState();
+        function selectIfMatchesState() {
+          if (tabCtrl.tabMatchesState()) {
+            tabsCtrl.select($scope);
+          }
+        }
+
+        var tabNavElement = angular.element(tabNavTemplate);
+        tabNavElement.data('$ionTabsController', tabsCtrl);
+        tabNavElement.data('$ionTabController', tabCtrl);
+        tabsCtrl.$tabsElement.append($compile(tabNavElement)($scope));
+
+        $scope.$watch('$tabSelected', function(value) {
+          childScope && childScope.$destroy();
+          childScope = null;
+          childElement && $animate.leave(childElement);
+          childElement = null;
+          if (value) {
+            childScope = $scope.$new();
+            childElement = tabContent.clone();
+            $animate.enter(childElement, tabsCtrl.$element);
+            $compile(childElement)(childScope);
+          }
+        });
+
+      };
+    }
+  };
+}]);
+
+IonicModule
+.directive('ionTabNav', [function() {
+  return {
+    restrict: 'E',
+    replace: true,
+    require: ['^ionTabs', '^ionTab'],
+    template:
+    '<a ng-class="{\'tab-item-active\': isTabActive(), \'has-badge\':badge}" ' +
+      ' class="tab-item">' +
+      '<span class="badge {{badgeStyle}}" ng-if="badge">{{badge}}</span>' +
+      '<i class="icon {{getIconOn()}}" ng-if="getIconOn() && isTabActive()"></i>' +
+      '<i class="icon {{getIconOff()}}" ng-if="getIconOff() && !isTabActive()"></i>' +
+      '<span class="tab-title" ng-bind-html="title"></span>' +
+    '</a>',
+    scope: {
+      title: '@',
+      icon: '@',
+      iconOn: '@',
+      iconOff: '@',
+      badge: '=',
+      badgeStyle: '@'
+    },
+    compile: function(element, attr, transclude) {
+      return function link($scope, $element, $attrs, ctrls) {
+        var tabsCtrl = ctrls[0],
+          tabCtrl = ctrls[1];
+
+        //Remove title attribute so browser-tooltip does not apear
+        $element[0].removeAttribute('title');
+
+        $scope.selectTab = function(e) {
+          e.preventDefault();
+          tabsCtrl.select(tabCtrl.$scope, true);
+        };
+        if (!$attrs.ngClick) {
+          $element.on('click', function(event) {
+            $scope.$apply(function() {
+              $scope.selectTab(event);
+            });
+          });
+        }
+
+        $scope.getIconOn = function() {
+          return $scope.iconOn || $scope.icon;
+        };
+        $scope.getIconOff = function() {
+          return $scope.iconOff || $scope.icon;
+        };
+
+        $scope.isTabActive = function() {
+          return tabsCtrl.selectedTab() === tabCtrl.$scope;
+        };
+      };
+    }
+  };
+}]);
+
+
+/**
+ * @ngdoc directive
+ * @name ionTabs
+ * @module ionic
+ * @delegate ionic.service:$ionicTabsDelegate
+ * @restrict E
+ * @codepen KbrzJ
+ *
+ * @description
+ * Powers a multi-tabbed interface with a Tab Bar and a set of "pages" that can be tabbed
+ * through.
+ *
+ * Assign any [tabs class](/docs/components#tabs) or
+ * [animation class](/docs/components#animation) to the element to define
+ * its look and feel.
+ *
+ * See the {@link ionic.directive:ionTab} directive's documentation for more details on
+ * individual tabs.
+ *
+ * Note: do not place ion-tabs inside of an ion-content element; it has been known to cause a
+ * certain CSS bug.
+ *
+ * @usage
+ * ```html
+ * <ion-tabs class="tabs-positive tabs-icon-only">
+ *
+ *   <ion-tab title="Home" icon-on="ion-ios7-filing" icon-off="ion-ios7-filing-outline">
+ *     <!-- Tab 1 content -->
+ *   </ion-tab>
+ *
+ *   <ion-tab title="About" icon-on="ion-ios7-clock" icon-off="ion-ios7-clock-outline">
+ *     <!-- Tab 2 content -->
+ *   </ion-tab>
+ *
+ *   <ion-tab title="Settings" icon-on="ion-ios7-gear" icon-off="ion-ios7-gear-outline">
+ *     <!-- Tab 3 content -->
+ *   </ion-tab>
+ *
+ * </ion-tabs>
+ * ```
+ *
+ * @param {string=} delegate-handle The handle used to identify these tabs
+ * with {@link ionic.service:$ionicTabsDelegate}.
+ */
+IonicModule
+
+.directive('ionTabs', ['$ionicViewService', '$ionicTabsDelegate', function($ionicViewService, $ionicTabsDelegate) {
+  return {
+    restrict: 'E',
+    scope: true,
+    controller: '$ionicTabs',
+    compile: function(element, attr) {
+      element.addClass('view');
+      //We cannot use regular transclude here because it breaks element.data()
+      //inheritance on compile
+      var innerElement = angular.element('<div class="tabs"></div>');
+      innerElement.append(element.contents());
+      element.append(innerElement);
+
+      return { pre: prelink };
+      function prelink($scope, $element, $attr, tabsCtrl) {
+        var deregisterInstance = $ionicTabsDelegate._registerInstance(
+          tabsCtrl, $attr.delegateHandle
+        );
+
+        $scope.$on('$destroy', deregisterInstance);
+
+        tabsCtrl.$scope = $scope;
+        tabsCtrl.$element = $element;
+        tabsCtrl.$tabsElement = angular.element($element[0].querySelector('.tabs'));
+
+        var el = $element[0];
+        $scope.$watch(function() { return el.className; }, function(value) {
+          var isTabsTop = value.indexOf('tabs-top') !== -1;
+          var isHidden = value.indexOf('tabs-item-hide') !== -1;
+          $scope.$hasTabs = !isTabsTop && !isHidden;
+          $scope.$hasTabsTop = isTabsTop && !isHidden;
+        });
+        $scope.$on('$destroy', function() {
+          delete $scope.$hasTabs;
+          delete $scope.$hasTabsTop;
+        });
+      }
+    }
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name ionToggle
+ * @module ionic
+ * @codepen tfAzj
+ * @restrict E
+ *
+ * @description
+ * A toggle is an animated switch which binds a given model to a boolean.
+ *
+ * Allows dragging of the switch's nub.
+ *
+ * The toggle behaves like any [AngularJS checkbox](http://docs.angularjs.org/api/ng/input/input[checkbox]) otherwise.
+ *
+ * @param toggle-class {string=} Sets the CSS class on the inner `label.toggle` element created by the directive.
+ *
+ * @usage
+ * Below is an example of a toggle directive which is wired up to the `airplaneMode` model
+ * and has the `toggle-calm` CSS class assigned to the inner element.
+ *
+ * ```html
+ * <ion-toggle ng-model="airplaneMode" toggle-class="toggle-calm">Airplane Mode</ion-toggle>
+ * ```
+ */
+IonicModule
+.directive('ionToggle', [
+  '$ionicGesture',
+  '$timeout',
+function($ionicGesture, $timeout) {
+
+  return {
+    restrict: 'E',
+    replace: true,
+    require: '?ngModel',
+    scope: {
+      ngModel: '=?',
+      ngValue: '=?',
+      ngChecked: '=?',
+      ngChange: '&',
+      ngDisabled: '=?'
+    },
+    transclude: true,
+    template: '<div class="item item-toggle">' +
+                '<div ng-transclude></div>' +
+                '<label class="toggle">' +
+                  '<input type="checkbox" ng-model="ngModel" ng-value="ngValue" ng-change="ngChange()" ng-disabled="ngDisabled">' +
+                  '<div class="track">' +
+                    '<div class="handle"></div>' +
+                  '</div>' +
+                '</label>' +
+              '</div>',
+
+    compile: function(element, attr) {
+      var input = element.find('input');
+      if(attr.name) input.attr('name', attr.name);
+      if(attr.ngChecked) input.attr('ng-checked', 'ngChecked');
+      if(attr.ngTrueValue) input.attr('ng-true-value', attr.ngTrueValue);
+      if(attr.ngFalseValue) input.attr('ng-false-value', attr.ngFalseValue);
+      if(attr.toggleClass) {
+        element[0].getElementsByTagName('label')[0].classList.add(attr.toggleClass);
+      }
+
+      return function($scope, $element, $attr) {
+         var el, checkbox, track, handle;
+
+         el = $element[0].getElementsByTagName('label')[0];
+         checkbox = el.children[0];
+         track = el.children[1];
+         handle = track.children[0];
+
+         var ngModelController = angular.element(checkbox).controller('ngModel');
+
+         $scope.toggle = new ionic.views.Toggle({
+           el: el,
+           track: track,
+           checkbox: checkbox,
+           handle: handle,
+           onChange: function() {
+             if(checkbox.checked) {
+               ngModelController.$setViewValue(true);
+             } else {
+               ngModelController.$setViewValue(false);
+             }
+             $scope.$apply();
+           }
+         });
+
+         $scope.$on('$destroy', function() {
+           $scope.toggle.destroy();
+         });
+      };
+    }
+
+  };
+}]);
+
+/**
+ * @ngdoc directive
+ * @name ionView
+ * @module ionic
+ * @restrict E
+ * @parent ionNavView
+ *
+ * @description
+ * A container for content, used to tell a parent {@link ionic.directive:ionNavBar}
+ * about the current view.
+ *
+ * @usage
+ * Below is an example where our page will load with a navbar containing "My Page" as the title.
+ *
+ * ```html
+ * <ion-nav-bar></ion-nav-bar>
+ * <ion-nav-view class="slide-left-right">
+ *   <ion-view title="My Page">
+ *     <ion-content>
+ *       Hello!
+ *     </ion-content>
+ *   </ion-view>
+ * </ion-nav-view>
+ * ```
+ *
+ * @param {string=} title The title to display on the parent {@link ionic.directive:ionNavBar}.
+ * @param {boolean=} hide-back-button Whether to hide the back button on the parent
+ * {@link ionic.directive:ionNavBar} by default.
+ * @param {boolean=} hide-nav-bar Whether to hide the parent
+ * {@link ionic.directive:ionNavBar} by default.
+ */
+IonicModule
+.directive('ionView', ['$ionicViewService', '$rootScope', '$animate',
+           function( $ionicViewService,   $rootScope,   $animate) {
+  return {
+    restrict: 'EA',
+    priority: 1000,
+    require: '^?ionNavBar',
+    compile: function(tElement, tAttrs, transclude) {
+      tElement.addClass('pane');
+      tElement[0].removeAttribute('title');
+
+      return function link($scope, $element, $attr, navBarCtrl) {
+        if (!navBarCtrl) {
+          return;
+        }
+
+        if (angular.isDefined($attr.title)) {
+
+          var initialTitle = $attr.title;
+          navBarCtrl.changeTitle(initialTitle, $scope.$navDirection);
+
+          // watch for changes in the title, don't set initial value as changeTitle does that
+          $attr.$observe('title', function(val, oldVal) {
+            if (val !== initialTitle) {
+              navBarCtrl.setTitle(val);
+            }
+          });
+
+        }
+
+        var hideBackAttr = angular.isDefined($attr.hideBackButton) ?
+          $attr.hideBackButton :
+          'false';
+        $scope.$watch(hideBackAttr, function(value) {
+          // Should we hide a back button when this tab is shown
+          navBarCtrl.showBackButton(!value);
+        });
+
+        var hideNavAttr = angular.isDefined($attr.hideNavBar) ?
+          $attr.hideNavBar :
+          'false';
+        $scope.$watch(hideNavAttr, function(value) {
+          // Should the nav bar be hidden for this view or not?
+          navBarCtrl.showBar(!value);
+        });
+
+      };
+    }
+  };
+}]);
 
 })();

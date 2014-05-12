@@ -48,10 +48,16 @@
         }
     });
 
-    app.controller("UserCtrl", function ($scope, account, vsoRESTAPI) {
+    app.controller("UserCtrl", function ($scope, $ionicLoading, account, vsoRESTAPI) {
+        $ionicLoading.show({ template: "Loading...", noBackdrop: true });
         $scope.$parent.user = account.username;
         vsoRESTAPI('git/repositories').then(function (res) {
+            $ionicLoading.hide();
             $scope.repos = res.data.value;
+            if (!$scope.repos) {
+                $scope.error = true;
+                return;
+            }
             $scope.repos.forEach(function (repo) {
                 vsoRESTAPI('git/repositories/' + repo.id + '/stats/branches').then(function (res) {
                     repo.branches = res.data.value;
@@ -60,16 +66,19 @@
                 });
             });
         }, function (err) {
+            $ionicLoading.hide();
             console.log(err);
         });
     });
 
-    app.controller("RepoCtrl", function ($scope, $stateParams, vsoRESTAPI) {
+    app.controller("RepoCtrl", function ($scope, $stateParams, $ionicLoading, vsoRESTAPI) {
+        $ionicLoading.show({ template: "Loading...", noBackdrop: true });
         $scope.repoId = $stateParams.id;
         $scope.getHash = function (email) {
             return md5(email.trim().toLowerCase());
         }
         vsoRESTAPI('git/repositories/' + $scope.repoId + '/commits').then(function (res) {
+            $ionicLoading.hide();
             $scope.commits = res.data.value;
         }, function (err) {
             console.log(err);
