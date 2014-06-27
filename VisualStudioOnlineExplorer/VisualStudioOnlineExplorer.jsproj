@@ -124,9 +124,10 @@
     <Content Include="fonts\ionicons.woff" />
     <Content Include="index.html" />
     <Content Include="partials\changes.html" />
+    <Content Include="partials\user.html" />
     <Content Include="partials\home.html" />
     <Content Include="partials\repo.html" />
-    <Content Include="partials\user.html" />
+    <Content Include="partials\repos.html" />
     <Content Include="scripts\index.js" />
     <Content Include="res\cert\android\ant.properties" />
     <Content Include="res\icons\android\icon-36-ldpi.png" />

@@ -6,6 +6,7 @@
     app.config(function ($stateProvider, $urlRouterProvider) {
         $stateProvider.
             state('home', { url: '/home', templateUrl: 'partials/home.html', controller: 'HomeCtrl' }).
+            state('user', { url: '/user', templateUrl: 'partials/user.html', controller: 'UserCtrl' }).
             state('repos', { url: '/repos', templateUrl: 'partials/repos.html', controller: 'ReposCtrl' }).
             state('repo', { url: '/repo/:id', templateUrl: 'partials/repo.html', controller: 'RepoCtrl' }).
             state('changes', { url: '/changes/:repoId/:commitId', templateUrl: 'partials/changes.html', controller: 'ChangesCtrl' });
@@ -38,19 +39,21 @@
         };
     });
 
-    app.controller("HomeCtrl", function ($scope, $window, account, $location) {
-        var homeScope = $scope;
+    app.controller("HomeCtrl", function ($scope, account, $location) {
         account.load();
         $scope.account = account;
         $scope.login = function () {
             account.save();
-            $location.path('/repos');
+            $location.path('/user');
         }
     });
 
-    app.controller("ReposCtrl", function ($scope, $ionicLoading, account, vsoRESTAPI) {
-        $ionicLoading.show({ template: "Loading...", noBackdrop: true });
+    app.controller("UserCtrl", function ($scope, account) {
         $scope.$parent.user = account.username;
+    });
+
+    app.controller("ReposCtrl", function ($scope, $ionicLoading, vsoRESTAPI) {
+        $ionicLoading.show({ template: "Loading...", noBackdrop: true });
         vsoRESTAPI('git/repositories').then(function (res) {
             $ionicLoading.hide();
             $scope.repos = res.data.value;
