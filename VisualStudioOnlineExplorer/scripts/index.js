@@ -60,13 +60,19 @@
             "wiql": "Select [System.WorkItemType],[System.Title],[System.State],[Microsoft.VSTS.Scheduling.Effort],[System.IterationPath] FROM WorkItemLinks WHERE Source.[System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory' AND Target.[System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory' AND Target.[System.State] IN ('New','Approved','Committed') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' ORDER BY [Microsoft.VSTS.Common.BacklogPriority] ASC,[System.Id] ASC MODE (Recursive, ReturnMatchingChildren)"
         }
         vsoRESTAPI('wit/queryresults', JSON.stringify(body)).then(function (res) {
+            var data = res.data.results.map(function(item) { return item.sourceId; });
+            return vsoRESTAPI('wit/workitems?ids=' + data.join(','));
+        }).then(function(res) {
             $ionicLoading.hide();
-            $scope.workitems= res.data.results;
+            $scope.workitems = res.data.value.map(function (item) {
+                var field = item.fields.filter(function (f) { return f.field.name == "Title"; })[0];
+                return field.value;
+            });;
             if (!$scope.workitems) {
                 $scope.error = true;
                 return;
             }
-        }, function (err) {
+        }).then(null, function (err) {
             $ionicLoading.hide();
             console.log(err);
         });
