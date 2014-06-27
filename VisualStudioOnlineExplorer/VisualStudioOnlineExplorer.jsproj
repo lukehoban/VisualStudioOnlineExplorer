@@ -124,6 +124,7 @@
     <Content Include="fonts\ionicons.woff" />
     <Content Include="index.html" />
     <Content Include="partials\changes.html" />
+    <Content Include="partials\workitems.html" />
     <Content Include="partials\user.html" />
     <Content Include="partials\home.html" />
     <Content Include="partials\repo.html" />

@@ -1,0 +1,18 @@
+﻿<ion-view title="Work Items">
+    <div class="bar bar-subheader item-input-inset">
+        <label class="item-input-wrapper">
+            <i class="icon ion-ios7-search placeholder-icon"></i>
+            <input type="search" placeholder="Search" ng-model="searchText" autocorrect="off" >
+        </label>
+    </div>
+    <ion-content class="has-header has-subheader">
+        <div class="list">
+            <a ng-repeat="result in workitems" class="item" ng-href="#/workitem/{{result.sourceId}}">
+                {{result.sourceId}}
+            </a>
+        </div>
+    </ion-content>
+    <div ng-if="error" class="bar bar-footer bar-assertive">
+        <div class="title">Unable to connect!</div>
+    </div>
+</ion-view>

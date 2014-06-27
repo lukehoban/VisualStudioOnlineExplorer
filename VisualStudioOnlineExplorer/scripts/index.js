@@ -7,6 +7,7 @@
         $stateProvider.
             state('home', { url: '/home', templateUrl: 'partials/home.html', controller: 'HomeCtrl' }).
             state('user', { url: '/user', templateUrl: 'partials/user.html', controller: 'UserCtrl' }).
+            state('workitems', { url: '/workitems', templateUrl: 'partials/workitems.html', controller: 'WorkItemsCtrl' }).
             state('repos', { url: '/repos', templateUrl: 'partials/repos.html', controller: 'ReposCtrl' }).
             state('repo', { url: '/repo/:id', templateUrl: 'partials/repo.html', controller: 'RepoCtrl' }).
             state('changes', { url: '/changes/:repoId/:commitId', templateUrl: 'partials/changes.html', controller: 'ChangesCtrl' });
@@ -15,11 +16,12 @@
 
     app.service("vsoRESTAPI", function ($http, account) {
         $http.defaults.cache = true;
-        return function (path) {
+        return function (path, body) {
             return $http({
-                method: "GET",
+                method: body ? 'POST' : 'GET',
                 url: 'https://' + account.account + '.VisualStudio.com/DefaultCollection/_apis/' + path,
-                headers: { Authorization: 'Basic ' + btoa(account.username + ':' + account.password) }
+                headers: { 'Authorization': 'Basic ' + btoa(account.username + ':' + account.password), 'Content-Type': 'application/json' },
+                data: body
             });
         };
     });
@@ -50,6 +52,24 @@
 
     app.controller("UserCtrl", function ($scope, account) {
         $scope.$parent.user = account.username;
+    });
+
+    app.controller("WorkItemsCtrl", function ($scope, $ionicLoading, vsoRESTAPI) {
+        $ionicLoading.show({ template: "Loading...", noBackdrop: true });
+        var body = {
+            "wiql": "Select [System.WorkItemType],[System.Title],[System.State],[Microsoft.VSTS.Scheduling.Effort],[System.IterationPath] FROM WorkItemLinks WHERE Source.[System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory' AND Target.[System.WorkItemType] IN GROUP 'Microsoft.RequirementCategory' AND Target.[System.State] IN ('New','Approved','Committed') AND [System.Links.LinkType] = 'System.LinkTypes.Hierarchy-Forward' ORDER BY [Microsoft.VSTS.Common.BacklogPriority] ASC,[System.Id] ASC MODE (Recursive, ReturnMatchingChildren)"
+        }
+        vsoRESTAPI('wit/queryresults', JSON.stringify(body)).then(function (res) {
+            $ionicLoading.hide();
+            $scope.workitems= res.data.results;
+            if (!$scope.workitems) {
+                $scope.error = true;
+                return;
+            }
+        }, function (err) {
+            $ionicLoading.hide();
+            console.log(err);
+        });
     });
 
     app.controller("ReposCtrl", function ($scope, $ionicLoading, vsoRESTAPI) {
